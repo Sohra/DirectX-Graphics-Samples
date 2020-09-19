@@ -1,0 +1,41 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <LangVersion>preview</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DirectX12GameEngine.Shaders" Version="1.0.0" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="1.8.11" />
+    <!--<PackageReference Include="DirectX12GameEngine.Shaders.Tasks" Version="1.0.0" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />-->
+    <PackageReference Include="Vortice.Direct3D12" Version="1.8.9" />
+    <PackageReference Include="Vortice.Dxc" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Aminator\DirectX12GameEngine\DirectX12GameEngine.Shaders.Tasks\DirectX12GameEngine.Shaders.Tasks.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--<Analyzer Include="$(OutDir)\DirectX12GameEngine.Shaders.Tasks.dll" />-->
+    <Analyzer Include="..\..\Aminator\DirectX12GameEngine\DirectX12GameEngine.Shaders.Tasks\bin\$(Configuration)\netstandard2.0\DirectX12GameEngine.Shaders.Tasks.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="HelloTextureShaders.hlsl">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="HelloTriangleShaders.hlsl">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
