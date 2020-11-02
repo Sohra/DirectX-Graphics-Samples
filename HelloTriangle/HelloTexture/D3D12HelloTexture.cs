@@ -1,8 +1,6 @@
 ﻿using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -14,8 +12,7 @@ using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace D3D12HelloWorld.HelloTexture
-{
+namespace D3D12HelloWorld.HelloTexture {
     /// <summary>
     /// https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/D3D12HelloTexture.cpp
     /// </summary>

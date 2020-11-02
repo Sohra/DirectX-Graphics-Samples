@@ -1,4 +1,4 @@
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
 using System;
 using System.Windows.Forms;
 
@@ -17,7 +17,9 @@ namespace D3D12HelloWorld
             Application.SetCompatibleTextRenderingDefault(false);
             //Application.Run(new HelloTriangle.D3D12HelloTriangle(1200, 900, string.Empty));
             //Application.Run(new HelloTexture.D3D12HelloTexture(1200, 900, string.Empty));
-            Application.Run(new HelloFrameBuffering.D3D12HelloFrameBuffering(1200, 900, string.Empty));
+            //Application.Run(new HelloFrameBuffering.D3D12HelloFrameBuffering(1200, 900, string.Empty));
+            //Application.Run(new HelloBundles.D3D12HelloBundles(1200, 900, string.Empty));
+            Application.Run(new Mutiny.D3D12Mutiny(1200, 900, string.Empty));
         }
 
         internal static ShaderStage GetShaderStage(string shader) => shader switch

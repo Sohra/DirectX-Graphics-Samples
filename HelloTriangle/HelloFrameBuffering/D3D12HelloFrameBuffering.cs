@@ -1,8 +1,6 @@
 ﻿using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
-using System.Data;
-using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -14,8 +12,7 @@ using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace D3D12HelloWorld.HelloFrameBuffering
-{
+namespace D3D12HelloWorld.HelloFrameBuffering {
     /// <summary>
     /// https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HelloWorld/src/HelloFrameBuffering/D3D12HelloFrameBuffering.cpp
     /// </summary>

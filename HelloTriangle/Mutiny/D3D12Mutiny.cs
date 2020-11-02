@@ -1,6 +1,7 @@
 ﻿using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -12,24 +13,19 @@ using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace D3D12HelloWorld.HelloBundles {
-    /// <summary>
-    /// https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HelloWorld/src/HelloBundles/D3D12HelloBundles.cpp
-    /// </summary>
-    public partial class D3D12HelloBundles : Form
-    {
+namespace D3D12HelloWorld.Mutiny {
+    public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
 
-        struct Vertex
-        {
+        struct Vertex {
             public Vector3 Position;
             public Color4 Colour;
         };
 
-        //DXSample - Viewport dimensions
+        //Viewport dimensions
         float mAspectRatio;
 
-        //DXSample - Adapter info
+        //Adapter info
         bool mUseWarpDevice;
 
         // Pipeline objects.
@@ -38,35 +34,34 @@ namespace D3D12HelloWorld.HelloBundles {
         IDXGISwapChain3 mSwapChain;
         ID3D12Device mDevice;
         readonly ID3D12Resource[] mRenderTargets;
-        ID3D12CommandAllocator mCommandAllocator;
-        ID3D12CommandAllocator mBundleAllocator;
+        readonly ID3D12CommandAllocator[] mCommandAllocators;
         ID3D12CommandQueue mCommandQueue;
+        CommandQueue mCopyCommandQueue;
         ID3D12RootSignature mRootSignature;
         ID3D12DescriptorHeap mRtvHeap;
         ID3D12PipelineState mPipelineState;
         ID3D12GraphicsCommandList mCommandList;
-        ID3D12GraphicsCommandList mBundle;
         int mRtvDescriptorSize;
 
         // App resources.
+        ID3D12Resource mIndexBuffer;
         ID3D12Resource mVertexBuffer;
+        IndexBufferView mIndexBufferView;
         VertexBufferView mVertexBufferView;
 
         // Synchronization objects.
         int mFrameIndex;
         ManualResetEvent mFenceEvent;
         ID3D12Fence mFence;
-        long mFenceValue;
+        readonly long[] mFenceValues;
 
-        //DX12GE - GameBase
+        //GameBase
         private readonly object mTickLock = new object();
 
-        public D3D12HelloBundles() : this(1200, 900, string.Empty)
-        {
+        public D3D12Mutiny() : this(1200, 900, string.Empty) {
         }
 
-        public D3D12HelloBundles(uint width, uint height, string name)
-        {
+        public D3D12Mutiny(uint width, uint height, string name) {
             InitializeComponent();
 
             Width = Convert.ToInt32(width);
@@ -79,6 +74,8 @@ namespace D3D12HelloWorld.HelloBundles {
             mViewport = new Viewport(width, height);
             mScissorRect = new Rectangle(Width, Height);
             mRenderTargets = new ID3D12Resource[FrameCount];
+            mCommandAllocators = new ID3D12CommandAllocator[FrameCount];
+            mFenceValues = new long[FrameCount];
 
             OnInit();
 
@@ -86,18 +83,15 @@ namespace D3D12HelloWorld.HelloBundles {
             this.FormClosing += (object sender, FormClosingEventArgs e) => OnDestroy();
         }
 
-        private void HandleCompositionTarget_Rendering(object sender, EventArgs e)
-        {
-            lock (mTickLock)
-            {
+        private void HandleCompositionTarget_Rendering(object sender, EventArgs e) {
+            lock (mTickLock) {
                 OnUpdate();
 
                 OnRender();
             }
         }
 
-        public virtual void OnInit()
-        {
+        public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
         }
@@ -105,15 +99,13 @@ namespace D3D12HelloWorld.HelloBundles {
         /// <summary>
         /// Update frame-based values
         /// </summary>
-        public virtual void OnUpdate()
-        {
+        public virtual void OnUpdate() {
         }
 
         /// <summary>
         /// Render the scene
         /// </summary>
-        public virtual void OnRender()
-        {
+        public virtual void OnRender() {
             // Record all the commands we need to render the scene into the command list.
             PopulateCommandList();
 
@@ -125,14 +117,13 @@ namespace D3D12HelloWorld.HelloBundles {
             if (presentResult.Failure)
                 throw new COMException("SwapChain.Present failed.", presentResult.Code);
 
-            WaitForPreviousFrame();
+            MoveToNextFrame();
         }
 
-        public virtual void OnDestroy()
-        {
+        public virtual void OnDestroy() {
             // Ensure that the GPU is no longer referencing resources that are about to be
             // cleaned up by the destructor.
-            WaitForPreviousFrame();
+            WaitForGpu();
 
             mFenceEvent.Dispose();
             //Replacing CloseHandle(mFenceEvent);
@@ -141,8 +132,7 @@ namespace D3D12HelloWorld.HelloBundles {
         /// <summary>
         /// Load the rendering pipeline dependencies.
         /// </summary>
-        void LoadPipeline()
-        {
+        void LoadPipeline() {
             bool dxgiFactoryDebugMode = false; //int dxgiFactoryFlags = 0;
 
 #if DEBUG
@@ -151,8 +141,7 @@ namespace D3D12HelloWorld.HelloBundles {
             {
                 Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug debugController);
 
-                if (debugResult.Success)
-                {
+                if (debugResult.Success) {
                     ID3D12Debug1 debug = debugController.QueryInterface<ID3D12Debug1>();
 
                     debug.EnableDebugLayer();
@@ -166,16 +155,14 @@ namespace D3D12HelloWorld.HelloBundles {
 
             DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4 factory);
 
-            if (mUseWarpDevice)
-            {
+            if (mUseWarpDevice) {
                 Result warpResult = factory.EnumWarpAdapter(out IDXGIAdapter warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
                 mDevice = D3D12.D3D12CreateDevice<ID3D12Device>(warpAdapter, Vortice.Direct3D.FeatureLevel.Level_11_0);
             }
-            else
-            {
+            else {
                 IDXGIAdapter1 hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
@@ -186,10 +173,10 @@ namespace D3D12HelloWorld.HelloBundles {
 
             // Describe and create the command queue.
             mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
+            mCopyCommandQueue = new CommandQueue(mDevice, CommandListType.Copy);
 
             // Describe and create the swap chain.
-            var swapChainDesc = new SwapChainDescription1
-            {
+            var swapChainDesc = new SwapChainDescription1 {
                 BufferCount = FrameCount,
                 Width = Width,
                 Height = Height,
@@ -207,8 +194,7 @@ namespace D3D12HelloWorld.HelloBundles {
             // Create descriptor heaps.
             {
                 // Describe and create a render target view (RTV) descriptor heap.
-                var rtvHeapDesc = new DescriptorHeapDescription
-                {
+                var rtvHeapDesc = new DescriptorHeapDescription {
                     DescriptorCount = FrameCount,
                     Type = DescriptorHeapType.RenderTargetView,
                     Flags = DescriptorHeapFlags.None,
@@ -222,29 +208,25 @@ namespace D3D12HelloWorld.HelloBundles {
             {
                 CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart();
 
-                // Create a RTV for each frame.
-                for (int n = 0; n < FrameCount; n++)
-                {
+                // Create a RTV and a command allocator for each frame.
+                for (int n = 0; n < FrameCount; n++) {
                     mRenderTargets[n] = mSwapChain.GetBuffer<ID3D12Resource>(n);
 
                     mDevice.CreateRenderTargetView(mRenderTargets[n], null, rtvHandle);
                     rtvHandle += 1 * mRtvDescriptorSize;
+
+                    mCommandAllocators[n] = mDevice.CreateCommandAllocator(CommandListType.Direct);
                 }
             }
-
-            mCommandAllocator = mDevice.CreateCommandAllocator(CommandListType.Direct);
-            mBundleAllocator = mDevice.CreateCommandAllocator(CommandListType.Bundle);
         }
 
         /// <summary>
         /// Load the sample assets
         /// </summary>
-        void LoadAssets()
-        {
+        void LoadAssets() {
             // Create an empty root signature. (NOTE: Original sample made no references to the VersionedRootSignatureDescription I use here, so this isn't an exact port)
             {
-                var rootSignatureDesc = new RootSignatureDescription1
-                {
+                var rootSignatureDesc = new RootSignatureDescription1 {
                     Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
                 };
                 mRootSignature = mDevice.CreateRootSignature(0, new VersionedRootSignatureDescription(rootSignatureDesc));
@@ -269,8 +251,7 @@ namespace D3D12HelloWorld.HelloBundles {
                 };
 
                 // Describe and create the graphics pipeline state object (PSO).
-                var psoDesc = new GraphicsPipelineStateDescription
-                {
+                var psoDesc = new GraphicsPipelineStateDescription {
                     InputLayout = new InputLayoutDescription(inputElementDescs),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
@@ -289,7 +270,7 @@ namespace D3D12HelloWorld.HelloBundles {
             }
 
             // Create the command list.
-            mCommandList = mDevice.CreateCommandList(0, CommandListType.Direct, mCommandAllocator, mPipelineState);
+            mCommandList = mDevice.CreateCommandList(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], mPipelineState);
 
             // Command lists are created in the recording state, but there is nothing
             // to record yet. The main loop expects it to be closed, so close it now.
@@ -328,20 +309,21 @@ namespace D3D12HelloWorld.HelloBundles {
                 mVertexBufferView.SizeInBytes = vertexBufferSize;
             }
 
-            // Create and record the bundle.
+            // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
-                mBundle = mDevice.CreateCommandList(0, CommandListType.Bundle, mBundleAllocator, mPipelineState);
-                mBundle.SetGraphicsRootSignature(mRootSignature);
-                mBundle.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-                mBundle.IASetVertexBuffers(0, mVertexBufferView);
-                mBundle.DrawInstanced(3, 1, 0, 0);
-                mBundle.Close();
+                var modelLoader = XModelLoader.Create3(mDevice, mCopyCommandQueue, @"Models\cannon_boss.X");
+                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState) firstMesh
+                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"Textures", false)).Result.First();
+                mIndexBuffer = firstMesh.IndexBuffer;
+                mVertexBuffer = firstMesh.VertexBuffer;
+                mIndexBufferView = firstMesh.IndexBufferView;
+                mVertexBufferView = firstMesh.VertexBufferView;
             }
 
             // Create synchronization objects and wait until assets have been uploaded to the GPU.
             {
-                mFence = mDevice.CreateFence(0, FenceFlags.None);
-                mFenceValue = 1;
+                mFence = mDevice.CreateFence(mFenceValues[mFrameIndex], FenceFlags.None);
+                mFenceValues[mFrameIndex]++;
 
                 // Create an event handle to use for frame synchronization.
                 mFenceEvent = new ManualResetEvent(false);
@@ -349,7 +331,7 @@ namespace D3D12HelloWorld.HelloBundles {
                 // Wait for the command list to execute; we are reusing the same command 
                 // list in our main loop but for now, we just want to wait for setup to 
                 // complete before continuing.
-                WaitForPreviousFrame();
+                WaitForGpu();
             }
         }
 
@@ -357,12 +339,12 @@ namespace D3D12HelloWorld.HelloBundles {
             // Command list allocators can only be reset when the associated 
             // command lists have finished execution on the GPU; apps should use 
             // fences to determine GPU execution progress.
-            mCommandAllocator.Reset();
+            mCommandAllocators[mFrameIndex].Reset();
 
             // However, when ExecuteCommandList() is called on a particular command 
             // list, that command list can then be reset at any time and must be before 
             // re-recording.
-            mCommandList.Reset(mCommandAllocator, mPipelineState);
+            mCommandList.Reset(mCommandAllocators[mFrameIndex], mPipelineState);
 
             // Set necessary state.
             mCommandList.SetGraphicsRootSignature(mRootSignature);
@@ -378,10 +360,10 @@ namespace D3D12HelloWorld.HelloBundles {
             // Record commands.
             var clearColor = System.Drawing.Color.FromArgb(255, 0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f));
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
-
-
-            // Execute the commands stored in the bundle.
-            mCommandList.ExecuteBundle(mBundle);
+            mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+            mCommandList.IASetVertexBuffers(0, mVertexBufferView);
+            mCommandList.IASetIndexBuffer(mIndexBufferView);
+            mCommandList.DrawIndexedInstanced(3, mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() / 3, 0, 0, 0);
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mRenderTargets[mFrameIndex], ResourceStates.RenderTarget, ResourceStates.Present));
@@ -389,28 +371,38 @@ namespace D3D12HelloWorld.HelloBundles {
             mCommandList.Close();
         }
 
-        void WaitForPreviousFrame()
-        {
-            // WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
-            // This is code implemented as such for simplicity. The D3D12HelloFrameBuffering
-            // sample illustrates how to use fences for efficient resource usage and to
-            // maximize GPU utilization.
+        // Wait for pending GPU work to complete.
+        void WaitForGpu() {
+            // Schedule a Signal command in the queue.
+            mCommandQueue.Signal(mFence, mFenceValues[mFrameIndex]);
 
-            // Signal and increment the fence value.
-            long fence = mFenceValue;
-            mCommandQueue.Signal(mFence, fence);
-            mFenceValue++;
+            // Wait until the fence has been processed.
+            //WaitForFence(mFence, mFenceValues[mFrameIndex]);
+            mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent);
+            mFenceEvent.WaitOne();
 
-            // Wait until the previous frame is finished.
-            if (mFence.CompletedValue < fence)
-            {
-                //mFenceEvent = new ManualResetEvent(false); //TODO??
-                //mFenceEvent.Reset();//TODO?
-                mFence.SetEventOnCompletion(fence, mFenceEvent);
+            // Increment the fence value for the current frame.
+            mFenceValues[mFrameIndex]++;
+        }
+
+        // Prepare to render the next frame.
+        void MoveToNextFrame() {
+            // Schedule a Signal command in the queue.
+            long currentFenceValue = mFenceValues[mFrameIndex];
+            mCommandQueue.Signal(mFence, currentFenceValue);
+
+            // Update the frame index.
+            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+
+            // If the next frame is not ready to be rendered yet, wait until it is ready.
+            //WaitForFence(mFence, mFenceValues[mFrameIndex]);
+            if (mFence.CompletedValue < mFenceValues[mFrameIndex]) {
+                mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent);
                 mFenceEvent.WaitOne();
             }
 
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            // Set the fence value for the next frame.
+            mFenceValues[mFrameIndex] = currentFenceValue + 1;
         }
 
     }
