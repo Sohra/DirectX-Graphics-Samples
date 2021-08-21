@@ -106,6 +106,8 @@ namespace D3D12HelloWorld.Mutiny {
         /// Render the scene
         /// </summary>
         public virtual void OnRender() {
+            //UpdateViewProjectionMatrices();
+
             // Record all the commands we need to render the scene into the command list.
             PopulateCommandList();
 
@@ -114,8 +116,17 @@ namespace D3D12HelloWorld.Mutiny {
 
             // Present the frame.
             var presentResult = mSwapChain.Present(1, 0);
-            if (presentResult.Failure)
-                throw new COMException("SwapChain.Present failed.", presentResult.Code);
+            if (presentResult.Failure) {
+                if (presentResult.Code == Vortice.DXGI.ResultCode.DeviceRemoved.Code) {
+                    //Lookup code at https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-error
+                    //Application should destroy and recreate the device (and all resources)
+                    //I encountered DXGI_ERROR_INVALID_CALL... 0x887A0001
+                    throw new COMException($"DXGI_ERROR_DEVICE_REMOVED, GetDeviceRemovedReason() yielded 0x{mDevice.DeviceRemovedReason.Code:X}", presentResult.Code);
+                }
+                else {
+                    throw new COMException($"SwapChain.Present failed 0x{presentResult.Code:X}.", presentResult.Code);
+                }
+            }
 
             MoveToNextFrame();
         }
@@ -224,7 +235,6 @@ namespace D3D12HelloWorld.Mutiny {
         /// Load the sample assets
         /// </summary>
         void LoadAssets() {
-            // Create an empty root signature. (NOTE: Original sample made no references to the VersionedRootSignatureDescription I use here, so this isn't an exact port)
             {
                 var rootSignatureDesc = new RootSignatureDescription1 {
                     Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
@@ -311,9 +321,9 @@ namespace D3D12HelloWorld.Mutiny {
 
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
-                var modelLoader = XModelLoader.Create3(mDevice, mCopyCommandQueue, @"Models\cannon_boss.X");
+                var modelLoader = XModelLoader.Create3(mDevice, mCopyCommandQueue, @"..\..\..\Mutiny\Models\cannon_boss.X");
                 (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState) firstMesh
-                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"Textures", false)).Result.First();
+                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny\Textures", false)).Result.First();
                 mIndexBuffer = firstMesh.IndexBuffer;
                 mVertexBuffer = firstMesh.VertexBuffer;
                 mIndexBufferView = firstMesh.IndexBufferView;
@@ -361,9 +371,13 @@ namespace D3D12HelloWorld.Mutiny {
             var clearColor = System.Drawing.Color.FromArgb(255, 0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f));
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
             mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-            mCommandList.IASetVertexBuffers(0, mVertexBufferView);
             mCommandList.IASetIndexBuffer(mIndexBufferView);
-            mCommandList.DrawIndexedInstanced(3, mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() / 3, 0, 0, 0);
+            mCommandList.IASetVertexBuffers(0, mVertexBufferView);
+            //mCommandList.SetGraphicsRootConstantBufferView(0, ViewProjectionTransformBuffer);
+            //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
+            //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
+            //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
+            mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() / 3, 1, 0, 0, 0);
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mRenderTargets[mFrameIndex], ResourceStates.RenderTarget, ResourceStates.Present));

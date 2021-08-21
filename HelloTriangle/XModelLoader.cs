@@ -397,6 +397,8 @@ namespace D3D12HelloWorld {
             var meshes = new List<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState/*, DescriptorSet ShaderResourceViewDescriptorSet, DescriptorSet SamplerDescriptorSet*/)>();
             foreach (var mesh in mFrames.Keys) {
                 var faceVertexIndices = mesh.FaceVertexIndices.Select(Convert.ToUInt16).ToArray();
+                //Used with custom triangle vertices below
+                //faceVertexIndices = new ushort[] { 0, 1, 2 };
                 var areIndices32Bit = System.Runtime.InteropServices.Marshal.SizeOf(faceVertexIndices.GetType().GetElementType()) == sizeof(int);
                 ID3D12Resource indexBuffer = CreateBufferOnDefaultHeap(mDevice, mCopyCommandQueue, GetIndexBuffer(faceVertexIndices), ResourceFlags.None);
                 var indexBufferView = new IndexBufferView(indexBuffer.GPUVirtualAddress, (int)indexBuffer.Description.Width, areIndices32Bit);
@@ -408,26 +410,41 @@ namespace D3D12HelloWorld {
                                 select g.ToArray();
                 byte[] vertexData;
 
-                    //var aspectRatio = 800 / 600.0f;
-                    //var triangleVertices = new[] {
-                    //    new ColouredVertex { Position = new Vector3(0.0f, 0.25f * aspectRatio, 0.0f), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
-                    //    new ColouredVertex { Position = new Vector3(0.25f, -0.25f * aspectRatio, 0.0f), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
-                    //    new ColouredVertex { Position = new Vector3(-0.25f, -0.25f * aspectRatio, 0.0f), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
-                    //};
+                //Used with faceVertexIndices = new ushort[] { 0, 1, 2 }; above to ensure we render the indices in the correct order...
+                var aspectRatio = 1200 / 900.0f;
+                //var triangleVertices = new[] {
+                //    new ColouredVertex { Position = new Vector3(0.0f, 0.25f * aspectRatio, 0.0f), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
+                //    new ColouredVertex { Position = new Vector3(0.25f, -0.25f * aspectRatio, 0.0f), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
+                //    new ColouredVertex { Position = new Vector3(-0.25f, -0.25f * aspectRatio, 0.0f), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //};
+                //var triangleVertices = new[] {
+                //    new ColouredVertex { Position = new Vector3(0.0f, 0.25f * aspectRatio, 0.13f), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
+                //    new ColouredVertex { Position = new Vector3(0.25f, -0.25f * aspectRatio, 0.13f), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
+                //    new ColouredVertex { Position = new Vector3(-0.25f, -0.25f * aspectRatio, 0.13f), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //};
 
-                    var triangleVertices = meshFaces.SelectMany(f => new[] {
-                                                                    new ColouredVertex { Position = mesh.Vertices[f[0]], Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
-                                                                    new ColouredVertex { Position = mesh.Vertices[f[1]], Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
-                                                                    new ColouredVertex { Position = mesh.Vertices[f[2]], Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
-                                                                });
-                    vertexData = triangleVertices.SelectMany(v => BitConverter.GetBytes(v.Position.X)
-                                                                              .Concat(BitConverter.GetBytes(v.Position.Y))
-                                                                              .Concat(BitConverter.GetBytes(v.Position.Z))
-                                                                              .Concat(BitConverter.GetBytes(v.Colour.X))
-                                                                              .Concat(BitConverter.GetBytes(v.Colour.Y))
-                                                                              .Concat(BitConverter.GetBytes(v.Colour.Z))
-                                                                              .Concat(BitConverter.GetBytes(v.Colour.W)))
-                                                 .ToArray();
+
+                //var triangleVertices = meshFaces.SelectMany(f => new[] {
+                //                                                new ColouredVertex { Position = mesh.Vertices[f[0]], Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
+                //                                                new ColouredVertex { Position = mesh.Vertices[f[1]], Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
+                //                                                new ColouredVertex { Position = mesh.Vertices[f[2]], Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //                                            });
+                //var worldMatrix = mFrames[mesh] * Matrix4x4.CreateScale(0.001f);// * Matrix4x4.CreateTranslation(0.0f, 0.0f, 0.25f);
+                //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / -2.0)) * Matrix4x4.CreateRotationY((float)(Math.PI / -2.0)) * Matrix4x4.CreateRotationZ((float)(Math.PI / -2.0));
+                var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
+                var triangleVertices = meshFaces.SelectMany(f => new[] {
+                                                                new ColouredVertex { Position = Vector3.Transform(mesh.Vertices[f[0]], worldMatrix), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
+                                                                new ColouredVertex { Position = Vector3.Transform(mesh.Vertices[f[1]], worldMatrix), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
+                                                                new ColouredVertex { Position = Vector3.Transform(mesh.Vertices[f[2]], worldMatrix), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                                                            });
+                vertexData = triangleVertices.SelectMany(v => BitConverter.GetBytes(v.Position.X)
+                                                                          .Concat(BitConverter.GetBytes(v.Position.Y))
+                                                                          .Concat(BitConverter.GetBytes(v.Position.Z))
+                                                                          .Concat(BitConverter.GetBytes(v.Colour.X))
+                                                                          .Concat(BitConverter.GetBytes(v.Colour.Y))
+                                                                          .Concat(BitConverter.GetBytes(v.Colour.Z))
+                                                                          .Concat(BitConverter.GetBytes(v.Colour.W)))
+                                             .ToArray();
 
                 // Note: using upload heaps to transfer static data like vert buffers is not 
                 // recommended. Every time the GPU needs it, the upload heap will be marshalled 
@@ -456,7 +473,8 @@ namespace D3D12HelloWorld {
                 //context.Visit(shader);
 
                 //Describe and create the graphics pipeline state object (PSO)
-                ID3D12PipelineState pipelineState = null;// await context.CreateGraphicsPipelineStateAsync(inputElements);
+                //ID3D12PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(inputElements);
+                ID3D12PipelineState pipelineState = null;
 
                 var primitiveWorldMatrix = mFrames[mesh];
                 meshes.Add((indexBuffer, vertexBuffer, indexBufferView, vertexBufferView, primitiveWorldMatrix, pipelineState/*, context.CreateShaderResourceViewDescriptorSet(), context.CreateSamplerDescriptorSet()*/));
