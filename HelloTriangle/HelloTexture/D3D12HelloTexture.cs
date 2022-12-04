@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Media;
+using Vortice;
 using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
@@ -37,7 +38,7 @@ namespace D3D12HelloWorld.HelloTexture {
 
         // Pipeline objects.
         Viewport mViewport;
-        Rectangle mScissorRect;
+        RawRect mScissorRect;
         IDXGISwapChain3 mSwapChain;
         ID3D12Device mDevice;
         readonly ID3D12Resource[] mRenderTargets;
@@ -59,7 +60,7 @@ namespace D3D12HelloWorld.HelloTexture {
         int mFrameIndex;
         ManualResetEvent mFenceEvent;
         ID3D12Fence mFence;
-        long mFenceValue;
+        ulong mFenceValue;
 
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
@@ -80,7 +81,7 @@ namespace D3D12HelloWorld.HelloTexture {
             mAspectRatio = width / (float)height;
 
             mViewport = new Viewport(width, height);
-            mScissorRect = new Rectangle(Width, Height);
+            mScissorRect = new RawRect(0, 0, Width, Height);
             mRenderTargets = new ID3D12Resource[FrameCount];
 
             OnInit();
@@ -121,7 +122,7 @@ namespace D3D12HelloWorld.HelloTexture {
             PopulateCommandList();
 
             // Execute the command list.
-            mCommandQueue.ExecuteCommandLists(mCommandList);
+            mCommandQueue.ExecuteCommandList(mCommandList);
 
             // Present the frame.
             var presentResult = mSwapChain.Present(1, 0);
@@ -197,7 +198,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 Width = Width,
                 Height = Height,
                 Format = Format.R8G8B8A8_UNorm,
-                Usage = Usage.RenderTargetOutput,
+                BufferUsage = Usage.RenderTargetOutput,
                 SwapEffect = SwapEffect.FlipDiscard,
                 SampleDescription = new SampleDescription(1, 0),
             };
@@ -205,7 +206,7 @@ namespace D3D12HelloWorld.HelloTexture {
             // Swap chain needs the queue so that it can force a flush on it.
             using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
@@ -338,20 +339,20 @@ namespace D3D12HelloWorld.HelloTexture {
                 //   at D3D12HelloWorld.HelloTexture.D3D12HelloTexture.OnInit() in \HelloTriangle\HelloTexture\D3D12HelloTexture.cs:line 108
                 //   at D3D12HelloWorld.HelloTexture.D3D12HelloTexture..ctor(UInt32 width, UInt32 height, String name) in \HelloTriangle\HelloTexture\D3D12HelloTexture.cs:line 89
                 //   at D3D12HelloWorld.Program.Main() in \HelloTriangle\Program.cs:line 19
-                var vertexShader = vertexShaderResult.AsShaderBytecode();
+                var vertexShader = vertexShaderResult.AsMemory();
 
                 status = pixelShaderOperation.GetStatus();
                 var errors = pixelShaderOperation.GetErrors().GetEncoding(out bool unknown, out uint codePage);
                 Vortice.Dxc.IDxcBlob pixelShaderResult = pixelShaderOperation.GetResult();
-                var pixelShader = pixelShaderResult.AsShaderBytecode();
+                var pixelShader = pixelShaderResult.AsMemory();
                 //*/
 
                 // Compile .NET to HLSL
                 var shader = new Shaders();
                 var shaderGenerator = new ShaderGenerator(shader);
                 ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                ShaderBytecode vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                ShaderBytecode pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
+                ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
+                ReadOnlyMemory<byte> pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
                 //*/
 
                 // Define the vertex input layout.
@@ -383,7 +384,7 @@ namespace D3D12HelloWorld.HelloTexture {
             }
 
             // Create the command list.
-            mCommandList = mDevice.CreateCommandList(0, CommandListType.Direct, mCommandAllocator, mPipelineState);
+            mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocator, mPipelineState);
 
             // Create the vertex buffer.
             {
@@ -405,12 +406,7 @@ namespace D3D12HelloWorld.HelloTexture {
                                                                 ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
 
                 // Copy the triangle data to the vertex buffer.
-                //var readRange = new Vortice.Direct3D12.Range();        // We do not intend to read from this resource on the CPU.
-                //IntPtr pVertexDataBegin = mVertexBuffer.Map(0, readRange);
-                IntPtr pVertexDataBegin = mVertexBuffer.Map(0);
-                //memcpy(pVertexDataBegin, triangleVertices, vertexBufferSize);
-                triangleVertices.AsSpan().CopyTo(pVertexDataBegin);
-                mVertexBuffer.Unmap(0, null);
+                mVertexBuffer.SetData(triangleVertices);
 
                 // Initialize the vertex buffer view.
                 mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
@@ -430,9 +426,9 @@ namespace D3D12HelloWorld.HelloTexture {
                 // Describe and create a Texture2D.
                 var textureDesc = ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm, TextureWidth, TextureHeight, 1, 1, 1, 0, ResourceFlags.None);
                 mTexture = mDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
-                                                           textureDesc, ResourceStates.CopyDestination, null);
+                                                           textureDesc, ResourceStates.CopyDest, null);
 
-                long uploadBufferSize = mDevice.GetRequiredIntermediateSize(mTexture, 0, 1);
+                var uploadBufferSize = mDevice.GetRequiredIntermediateSize(mTexture, 0, 1);
 
                 // Create the GPU upload buffer.
                 textureUploadHeap = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
@@ -517,7 +513,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 ////**************************************************************** THIS DOES NOT CRASH BUT RENDERS ALL BLACK **************************************************
 
                 //NOTE: This is not required if using a copy queue, see MJP comment at https://www.gamedev.net/forums/topic/704025-use-texture2darray-in-d3d12/
-                mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mTexture, ResourceStates.CopyDestination, ResourceStates.PixelShaderResource));
+                mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mTexture, ResourceStates.CopyDest, ResourceStates.PixelShaderResource));
 
                 //copyCommandList.Close();  //But now calling this throws a SharpGen.Runtime.SharpGenException: HRESULT: [0x80070057], Module:[General], ApiCode:[E_INVALIDARG/ Invalid Arguments], Message: The parameter is incorrect.
                 //commandQueue.ExecuteCommandList(copyCommandList);
@@ -544,7 +540,7 @@ namespace D3D12HelloWorld.HelloTexture {
 
             // Close the command list and execute it to begin the initial GPU setup.
             mCommandList.Close();
-            mCommandQueue.ExecuteCommandLists(mCommandList);
+            mCommandQueue.ExecuteCommandList(mCommandList);
 
             // Create synchronization objects and wait until assets have been uploaded to the GPU.
             {
@@ -625,7 +621,7 @@ namespace D3D12HelloWorld.HelloTexture {
             mCommandList.OMSetRenderTargets(rtvHandle, null);
 
             // Record commands.
-            var clearColor = System.Drawing.Color.FromArgb(255, 0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f));
+            var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
             mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
             mCommandList.IASetVertexBuffers(0, mVertexBufferView);
@@ -645,7 +641,7 @@ namespace D3D12HelloWorld.HelloTexture {
             // maximize GPU utilization.
 
             // Signal and increment the fence value.
-            long fence = mFenceValue;
+            ulong fence = mFenceValue;
             mCommandQueue.Signal(mFence, fence);
             mFenceValue++;
 
@@ -658,7 +654,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 mFenceEvent.WaitOne();
             }
 
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
         }
 
     }

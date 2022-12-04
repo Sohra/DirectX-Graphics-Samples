@@ -1,54 +1,55 @@
-﻿using System;
+﻿using Serilog;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using Vortice.Direct3D12;
 
 namespace D3D12HelloWorld {
     class CompiledCommandList {
-        private readonly ID3D12CommandAllocator mCommandAllocator;
+        //private readonly ID3D12CommandAllocator mCommandAllocator;
 
         public CompiledCommandList(ID3D12GraphicsCommandList commandList, ID3D12CommandAllocator commandAllocator) {
             CommandList = commandList;
-            mCommandAllocator = commandAllocator;
+            //mCommandAllocator = commandAllocator;
         }
 
         internal ID3D12CommandList CommandList { get; }
     }
 
     class CommandQueue : IDisposable {
-        private readonly ID3D12Device mDevice;
+        //private readonly ID3D12Device mDevice;
         private readonly ID3D12CommandQueue mCommandQueue;
         private readonly ID3D12Fence mFence;
-        private long mNextFenceValue;
+        private ulong mNextFenceValue;
 
-        public CommandQueue(ID3D12Device device, CommandListType commandListType) {
-            mDevice = device;
-            mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(commandListType));
-            mFence = mDevice.CreateFence(0);
+        public CommandQueue(ID3D12Device device, CommandListType commandListType, string name) {
+            //mDevice = device;
+            mCommandQueue = device.CreateCommandQueue(new CommandQueueDescription(commandListType));
+            mCommandQueue.Name = name;
+            mFence = device.CreateFence(0);
             mNextFenceValue = 1;
         }
 
         public void Dispose() {
-            mCommandQueue.Dispose();
             mFence.Dispose();
+            mCommandQueue.Dispose();
         }
 
         public void ExecuteCommandLists(params CompiledCommandList[] commandLists)
             => ExecuteCommandLists(commandLists.AsEnumerable());
 
         public void ExecuteCommandLists(IEnumerable<CompiledCommandList> commandLists) {
-            if (commandLists.Count() == 0)
+            if (!commandLists.Any())
                 return;
 
-            long fenceValue = ExecuteCommandListsInternal(commandLists);
+            ulong fenceValue = ExecuteCommandListsInternal(commandLists);
 
             WaitForFence(mFence, fenceValue);
         }
 
-        long ExecuteCommandListsInternal(IEnumerable<CompiledCommandList> commandLists) {
-            long fenceValue = mNextFenceValue++;
+        ulong ExecuteCommandListsInternal(IEnumerable<CompiledCommandList> commandLists) {
+            ulong fenceValue = mNextFenceValue++;
             ID3D12CommandList[] nativeCommandLists = commandLists.Select(c => c.CommandList).ToArray();
 
             mCommandQueue.ExecuteCommandLists(nativeCommandLists);
@@ -57,13 +58,15 @@ namespace D3D12HelloWorld {
             return fenceValue;
         }
 
-        bool IsFenceComplete(ID3D12Fence fence, long fenceValue)
+        bool IsFenceComplete(ID3D12Fence fence, ulong fenceValue)
             => fence.CompletedValue >= fenceValue;
 
-        void WaitForFence(ID3D12Fence fence, long fenceValue) {
+        void WaitForFence(ID3D12Fence fence, ulong fenceValue) {
             if (IsFenceComplete(fence, fenceValue))
                 return;
 
+            Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Waiting for {requiredFenceValue}, currently at {currentFenceValue}",
+                             nameof(WaitForFence), fenceValue, fence.CompletedValue);
             using var fenceEvent = new ManualResetEvent(false);
             fence.SetEventOnCompletion(fenceValue, fenceEvent);
 

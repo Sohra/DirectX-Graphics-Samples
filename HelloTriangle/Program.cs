@@ -1,5 +1,7 @@
 ﻿using DirectX12GameEngine.Shaders;
+using Serilog;
 using System;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace D3D12HelloWorld
@@ -12,6 +14,20 @@ namespace D3D12HelloWorld
         [STAThread]
         static void Main()
         {
+            var logConfig = new LoggerConfiguration().MinimumLevel.Debug();
+#if DEBUG
+            logConfig.WriteTo.Debug();
+#endif
+            var hostAssembly = typeof(Program).GetTypeInfo().Assembly;
+            var workingFolder = System.IO.Path.GetDirectoryName(hostAssembly!.Location)!;
+            var basePath = workingFolder;
+            logConfig.WriteTo.File(System.IO.Path.Combine(basePath, "log.txt"), rollingInterval: RollingInterval.Day)
+                     .Enrich.FromLogContext();
+            Log.Logger = logConfig.CreateLogger();  //Share this for everyone else to use
+
+            Log.Logger.Information("Starting v{productVersion:l} in {currentDirectory}, running from {WorkingFolder}",
+                                   hostAssembly!.GetName()!.Version!.ToString(3), Environment.CurrentDirectory, workingFolder);
+
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);

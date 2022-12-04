@@ -10,82 +10,36 @@ namespace D3D12HelloWorld
             source.CopyTo(new Span<T>(destination.ToPointer(), source.Length));
         }
 
-        public static unsafe ShaderBytecode AsShaderBytecode(this Vortice.Dxc.IDxcBlob source)
+        public static ulong GetRequiredIntermediateSize(this ID3D12Device device, ID3D12Resource destinationResource, int firstSubresource, int numSubresources)
         {
-            return new ShaderBytecode(new IntPtr(source.GetBufferPointer()), source.GetBufferSize());
-        }
-
-        public static long GetRequiredIntermediateSize(this ID3D12Device device, ID3D12Resource destinationResource, int firstSubresource, int numSubresources)
-        {
-            var desc = destinationResource.Description;
-
-            device.GetCopyableFootprints(ref desc, firstSubresource, numSubresources, 0, null, null, null, out long requiredSize);
+            device.GetCopyableFootprints(destinationResource.Description, firstSubresource, numSubresources, 0, null, null, null, out ulong requiredSize);
             return requiredSize;
         }
 
-        public static long UpdateSubresource(this ID3D12Device device, ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
-                                             int intermediateOffset, int firstSubresource, Span<byte> data)
+        public static ulong UpdateSubresource(this ID3D12Device device, ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
+                                              ulong intermediateOffset, int firstSubresource, ReadOnlySpan<byte> data)
         {
             int numSubresource = 1;
             var layouts = new PlacedSubresourceFootPrint[numSubresource];
             var numRows = new int[numSubresource];
-            var rowSizesInBytes = new long[numSubresource];
-            var desc = destResource.Description;
-            device.GetCopyableFootprints(ref desc, firstSubresource, numSubresource, intermediateOffset, layouts, numRows, rowSizesInBytes, out var requiredSize);
+            var rowSizesInBytes = new ulong[numSubresource];
+            device.GetCopyableFootprints(destResource.Description, firstSubresource, numSubresource, intermediateOffset, layouts, numRows, rowSizesInBytes, out ulong requiredSize);
 
             var intermediateDesc = intermediateResource.Description;
             var destDesc = destResource.Description;
 
             if (intermediateDesc.Dimension != ResourceDimension.Buffer
-                || intermediateDesc.Width < data.Length
+                || intermediateDesc.Width < (ulong)data.Length
                 || data.Length == 0
                 || (destDesc.Dimension == ResourceDimension.Buffer && firstSubresource != 0
                     || numSubresource != 1))
                 return 0;
 
-            var ptr = intermediateResource.Map(0, new Vortice.Direct3D12.Range(0, 0));  //Do not intend to read this resource from the CPU (whereas null indicates we might read the entire resource)
-            if (ptr == IntPtr.Zero)
-                return 0;
-
-            for (int idx = 0; idx < numSubresource; idx++)
-            {
-                if (rowSizesInBytes[idx] == 0)
-                    return 0;
-
-                //Throws SharpGenException SharpGen.Runtime.SharpGenException: HRESULT: [0x80070057], Module:[General], ApiCode:[E_INVALIDARG/ Invalid Arguments], Message: The parameter is incorrect.
-                //According to https://github.com/Microsoft/DirectX-Graphics-Samples/issues/320 can't write directly to textures without using a custom heap pool
-                //But then... what was the C++ code doing?  And this is a buffer dimension, not a texture... so wtf?  Maybe totally unrelated.
-                //https://github.com/Microsoft/DirectX-Graphics-Samples/issues/110
-                //intermediateResource.WriteToSubresource(idx, data, layouts[idx].Footprint.RowPitch, layouts[idx].Footprint.RowPitch * layouts[idx].Footprint.Height);
-                ////https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12resource-writetosubresource
-
-                //This works, as does the MemcpySubresource stuff below, but I don't understand why I can't get intermediateResource.WriteToSubresource to work
-                data.CopyTo(ptr);
-                /* All of this can be replaced by the above one-liner
-                //MemcpySubresource https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HelloWorld/src/HelloTexture/d3dx12.h
-                var destRowPitch = layouts[idx].Footprint.RowPitch;
-                var destSlicePitch = layouts[idx].Footprint.RowPitch * numRows[idx];
-                var srcRowPitch = layouts[idx].Footprint.RowPitch;
-                var srcSlicePitch = layouts[idx].Footprint.RowPitch * layouts[idx].Footprint.Height;
-                var numSlices = layouts[idx].Footprint.Depth;
-                for (var z = 0; z < numSlices; ++z)
-                {
-                    IntPtr pDestSlice = ptr + destSlicePitch * z;
-                    var srcSlice = data.Slice(srcSlicePitch * z, srcSlicePitch);
-
-                    for (var y = 0; y < numRows[idx]; ++y)
-                    {
-                        var srcRow = srcSlice.Slice(srcRowPitch * y, (int)rowSizesInBytes[idx]);
-                        srcRow.CopyTo(pDestSlice + destRowPitch * y);
-                    }
-                }*/
-            }
-
-            intermediateResource.Unmap(0);
+            intermediateResource.SetData(data);
 
             if (destDesc.Dimension == ResourceDimension.Buffer)
             {
-                cmdList.CopyBufferRegion(destResource, 0, intermediateResource, layouts[0].Offset, layouts[0].Footprint.Width);
+                cmdList.CopyBufferRegion(destResource, 0, intermediateResource, layouts[0].Offset, (ulong)layouts[0].Footprint.Width);
             }
             else
             {
@@ -119,23 +73,22 @@ namespace D3D12HelloWorld
         /// <summary>
         /// https://github.com/Mayhem50/SharpMiniEngine/blob/b955ec87786278af6bc6281ea84b5ce968a3ab21/Assemblies/Core/DirectX12.cs
         /// </summary>
-        public static long UpdateSubResources(this ID3D12Device device, ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
-                                              long intermediateOffset, int firstSubresource, SubresourceInfo[] datas)
+        public static ulong UpdateSubResources(this ID3D12Device device, ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
+                                               ulong intermediateOffset, int firstSubresource, SubresourceInfo[] data)
         {
-            int numSubresource = datas.Length;
+            int numSubresource = data.Length;
             var layouts = new PlacedSubresourceFootPrint[numSubresource];
             var numRows = new int[numSubresource];
-            var rowSizesInBytes = new long[numSubresource];
+            var rowSizesInBytes = new ulong[numSubresource];
 
-            var desc = destResource.Description;
-            device.GetCopyableFootprints(ref desc, firstSubresource, numSubresource, intermediateOffset, layouts, numRows, rowSizesInBytes, out var requiredSize);
-            long result = UpdateSubResources(cmdList, destResource, intermediateResource, firstSubresource, numSubresource, requiredSize, layouts, rowSizesInBytes, datas);
+            device.GetCopyableFootprints(destResource.Description, firstSubresource, numSubresource, intermediateOffset, layouts, numRows, rowSizesInBytes, out var requiredSize);
+            ulong result = UpdateSubResources(cmdList, destResource, intermediateResource, firstSubresource, numSubresource, requiredSize, layouts, rowSizesInBytes, data);
             return result;
         }
 
-        private static long UpdateSubResources(ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
-                                               int firstSubresource, int numSubresource, long requiredSize, PlacedSubresourceFootPrint[] layouts,
-                                               long[] rowSizesInBytes, SubresourceInfo[] data)
+        private static ulong UpdateSubResources(ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
+                                                int firstSubresource, int numSubresource, ulong requiredSize, PlacedSubresourceFootPrint[] layouts,
+                                                ulong[] rowSizesInBytes, SubresourceInfo[] data)
         {
             var intermediateDesc = intermediateResource.Description;
             var destDesc = destResource.Description;
@@ -151,21 +104,21 @@ namespace D3D12HelloWorld
                 return 0;
             }
 
-            var ptr = intermediateResource.Map(0, null);
-            if (ptr == IntPtr.Zero)
-            {
-                return 0;
+            unsafe {
+                if (intermediateResource.Map(0, null).Failure) {
+                    return 0;
+                }
             }
 
             for (int idx = 0; idx < numSubresource; idx++)
             {
                 if (rowSizesInBytes[idx] == 0) { return 0; }
-                intermediateResource.WriteToSubresource(idx, null, new IntPtr(data[idx].Offset), data[idx].RowPitch, data[idx].DepthPitch);
+                intermediateResource.WriteToSubresource(idx, null, new IntPtr((long)data[idx].Offset), data[idx].RowPitch, data[idx].DepthPitch);
             }
 
             if (destDesc.Dimension == ResourceDimension.Buffer)
             {
-                cmdList.CopyBufferRegion(destResource, 0, intermediateResource, layouts[0].Offset, layouts[0].Footprint.Width);
+                cmdList.CopyBufferRegion(destResource, 0, intermediateResource, layouts[0].Offset, (ulong)layouts[0].Footprint.Width);
             }
             else
             {

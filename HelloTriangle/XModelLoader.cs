@@ -346,15 +346,16 @@ namespace D3D12HelloWorld {
         /// <returns></returns>
         public static ID3D12Resource CreateBufferOnDefaultHeap<T>(ID3D12Device device, CommandQueue copyCommandQueue, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
             //Create buffer
-            int size = data.Length * Unsafe.SizeOf<T>();
+            var size = (ulong)(data.Length * Unsafe.SizeOf<T>());
             ID3D12Resource buffer = device.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.Common);
 
             //Set data
             using ID3D12Resource uploadBuffer = CreateBufferOnUploadHeap(device, data, ResourceFlags.None);
             //Copy from the upload buffer to the buffer
             using ID3D12CommandAllocator commandAllocator = device.CreateCommandAllocator(CommandListType.Copy);
-            using ID3D12GraphicsCommandList copyCommandList = device.CreateCommandList(0, CommandListType.Copy, commandAllocator, null);
-
+            commandAllocator.Name = "Copy Allocator";
+            using ID3D12GraphicsCommandList copyCommandList = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Copy, commandAllocator, null);
+            copyCommandList.Name = "Copy Command List";
             copyCommandList.CopyBufferRegion(buffer, 0, uploadBuffer, 0, size);
             copyCommandList.Close();
 
@@ -380,10 +381,7 @@ namespace D3D12HelloWorld {
             ID3D12Resource buffer = device.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.GenericRead);
 
             //Set data
-            IntPtr mappedResource = buffer.Map(0);
-            data.CopyTo(mappedResource + 0);
-            buffer.Unmap(0);
-
+            buffer.SetData<T>(data);
             return buffer;
         }
 

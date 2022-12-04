@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Media;
+using Vortice;
 using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
@@ -42,7 +43,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
 
         // Pipeline objects.
         Viewport mViewport;
-        Rectangle mScissorRect;
+        RawRect mScissorRect;
         IDXGISwapChain3 mSwapChain;
         ID3D12Device mDevice;
         readonly ID3D12Resource[] mRenderTargets;
@@ -62,7 +63,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         int mFrameIndex;
         ManualResetEvent mFenceEvent;
         ID3D12Fence mFence;
-        readonly long[] mFenceValues;
+        readonly ulong[] mFenceValues;
 
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
@@ -82,10 +83,10 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             mAspectRatio = width / (float)height;
 
             mViewport = new Viewport(width, height);
-            mScissorRect = new Rectangle(Width, Height);
+            mScissorRect = new RawRect(0, 0, Width, Height);
             mRenderTargets = new ID3D12Resource[FrameCount];
             mCommandAllocators = new ID3D12CommandAllocator[FrameCount];
-            mFenceValues = new long[FrameCount];
+            mFenceValues = new ulong[FrameCount];
 
             OnInit();
 
@@ -125,7 +126,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             PopulateCommandList();
 
             // Execute the command list.
-            mCommandQueue.ExecuteCommandLists(mCommandList);
+            mCommandQueue.ExecuteCommandList(mCommandList);
 
             // Present the frame.
             var presentResult = mSwapChain.Present(1, 0);
@@ -201,7 +202,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
                 Width = Width,
                 Height = Height,
                 Format = Format.R8G8B8A8_UNorm,
-                Usage = Usage.RenderTargetOutput,
+                BufferUsage = Usage.RenderTargetOutput,
                 SwapEffect = SwapEffect.FlipDiscard,
                 SampleDescription = new SampleDescription(1, 0),
             };
@@ -209,7 +210,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             // Swap chain needs the queue so that it can force a flush on it.
             using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
@@ -261,8 +262,8 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
                 var shader = new HelloTriangle.Shaders();
                 var shaderGenerator = new ShaderGenerator(shader);
                 ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                ShaderBytecode vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                ShaderBytecode pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
+                ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
+                ReadOnlyMemory<byte> pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
 
 
                 // Define the vertex input layout.
@@ -295,7 +296,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             }
 
             // Create the command list.
-            mCommandList = mDevice.CreateCommandList(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], mPipelineState);
+            mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], mPipelineState);
 
             // Command lists are created in the recording state, but there is nothing
             // to record yet. The main loop expects it to be closed, so close it now.
@@ -321,12 +322,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
                                                                 ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
 
                 // Copy the triangle data to the vertex buffer.
-                //var readRange = new Vortice.Direct3D12.Range();        // We do not intend to read from this resource on the CPU.
-                //IntPtr pVertexDataBegin = mVertexBuffer.Map(0, readRange);
-                IntPtr pVertexDataBegin = mVertexBuffer.Map(0);
-                //memcpy(pVertexDataBegin, triangleVertices, vertexBufferSize);
-                triangleVertices.AsSpan().CopyTo(pVertexDataBegin);
-                mVertexBuffer.Unmap(0, null);
+                mVertexBuffer.SetData(triangleVertices);
 
                 // Initialize the vertex buffer view.
                 mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
@@ -373,7 +369,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             mCommandList.OMSetRenderTargets(rtvHandle, null);
 
             // Record commands.
-            var clearColor = System.Drawing.Color.FromArgb(255, 0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f));
+            var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
             mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
             mCommandList.IASetVertexBuffers(0, mVertexBufferView);
@@ -403,11 +399,11 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         void MoveToNextFrame()
         {
             // Schedule a Signal command in the queue.
-            long currentFenceValue = mFenceValues[mFrameIndex];
+            ulong currentFenceValue = mFenceValues[mFrameIndex];
             mCommandQueue.Signal(mFence, currentFenceValue);
 
             // Update the frame index.
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // If the next frame is not ready to be rendered yet, wait until it is ready.
             if (mFence.CompletedValue < mFenceValues[mFrameIndex])

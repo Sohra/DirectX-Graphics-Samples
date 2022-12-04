@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Media;
+using Vortice;
 using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
@@ -34,7 +35,7 @@ namespace D3D12HelloWorld.HelloTriangle {
 
         // Pipeline objects.
         Viewport mViewport;
-        Rectangle mScissorRect;
+        RawRect mScissorRect;
         IDXGISwapChain3 mSwapChain;
         ID3D12Device mDevice;
         readonly ID3D12Resource[] mRenderTargets;
@@ -54,7 +55,7 @@ namespace D3D12HelloWorld.HelloTriangle {
         int mFrameIndex;
         ManualResetEvent mFenceEvent;
         ID3D12Fence mFence;
-        long mFenceValue;
+        ulong mFenceValue;
 
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
@@ -75,7 +76,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             mAspectRatio = width / (float)height;
 
             mViewport = new Viewport(width, height);
-            mScissorRect = new Rectangle(Width, Height);
+            mScissorRect = new RawRect(0, 0, Width, Height);
             mRenderTargets = new ID3D12Resource[FrameCount];
 
             OnInit();
@@ -116,7 +117,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             PopulateCommandList();
 
             // Execute the command list.
-            mCommandQueue.ExecuteCommandLists(mCommandList);
+            mCommandQueue.ExecuteCommandList(mCommandList);
 
             // Present the frame.
             var presentResult = mSwapChain.Present(1, 0);
@@ -192,7 +193,7 @@ namespace D3D12HelloWorld.HelloTriangle {
                 Width = Width,
                 Height = Height,
                 Format = Format.R8G8B8A8_UNorm,
-                Usage = Usage.RenderTargetOutput,
+                BufferUsage = Usage.RenderTargetOutput,
                 SwapEffect = SwapEffect.FlipDiscard,
                 SampleDescription = new SampleDescription(1, 0),
             };
@@ -200,7 +201,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             // Swap chain needs the queue so that it can force a flush on it.
             using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
@@ -259,18 +260,20 @@ namespace D3D12HelloWorld.HelloTriangle {
                 //                ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), null, null, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, null));
                 //                ThrowIfFailed(D3DCompileFromFile(GetAssetFullPath(L"shaders.hlsl").c_str(), null, null, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, null));
                 var options = new Vortice.Dxc.DxcCompilerOptions { ShaderModel = Vortice.Dxc.DxcShaderModel.Model6_0 };
-                Vortice.Dxc.IDxcOperationResult result2 = Vortice.Dxc.DxcCompiler.Compile(Vortice.Dxc.DxcShaderStage.VertexShader, "HelloTriangleShaders.hlsl", "VSMain", null, options);
-                //Vortice.Dxc.IDxcOperationResult result2 = Vortice.Dxc.DxcCompiler.Compile(Vortice.Dxc.DxcShaderStage.PixelShader, "HelloTriangleShaders.hlsl", "PSMain", null, options);
+                var fileName = "HelloTriangleShaders.hlsl";
+                var shaderSource = System.IO.File.ReadAllText(fileName);
+                Vortice.Dxc.IDxcOperationResult result2 = Vortice.Dxc.DxcCompiler.Compile(Vortice.Dxc.DxcShaderStage.Vertex, shaderSource, "VSMain", options, fileName);
+                //Vortice.Dxc.IDxcOperationResult result2 = Vortice.Dxc.DxcCompiler.Compile(Vortice.Dxc.DxcShaderStage.Pixel, shaderSource, "PSMain", options, fileName);
 
                 var shader = new Shaders();
                 var shaderGenerator = new ShaderGenerator(shader);
                 ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                ShaderBytecode vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                ShaderBytecode pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
+                ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
+                ReadOnlyMemory<byte> pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
                 //var compiledShader = result.EntryPoints.Select(entryPoint => new { Stage = GetShaderStage(entryPoint.Key), EntryPoint = entryPoint.Value })
                 //                                       .ToDictionary(ep => ep.Stage, ep => ShaderCompiler.Compile(ep.Stage, result.ShaderSource, ep.EntryPoint));
-                //ShaderBytecode vertexShader = compiledShader[ShaderStage.VertexShader];
-                //ShaderBytecode pixelShader = compiledShader[ShaderStage.PixelShader];
+                //ReadOnlyMemory<byte> vertexShader = compiledShader[ShaderStage.VertexShader];
+                //ReadOnlyMemory<byte> pixelShader = compiledShader[ShaderStage.PixelShader];
 
 
 
@@ -304,7 +307,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             }
 
             // Create the command list.
-            mCommandList = mDevice.CreateCommandList(0, CommandListType.Direct, mCommandAllocator, mPipelineState);
+            mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocator, mPipelineState);
 
             // Command lists are created in the recording state, but there is nothing
             // to record yet. The main loop expects it to be closed, so close it now.
@@ -330,12 +333,7 @@ namespace D3D12HelloWorld.HelloTriangle {
                                                                 ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
 
                 // Copy the triangle data to the vertex buffer.
-                //var readRange = new Vortice.Direct3D12.Range();        // We do not intend to read from this resource on the CPU.
-                //IntPtr pVertexDataBegin = mVertexBuffer.Map(0, readRange);
-                IntPtr pVertexDataBegin = mVertexBuffer.Map(0);
-                //memcpy(pVertexDataBegin, triangleVertices, vertexBufferSize);
-                triangleVertices.AsSpan().CopyTo(pVertexDataBegin);
-                mVertexBuffer.Unmap(0, null);
+                mVertexBuffer.SetData(triangleVertices);
 
                 // Initialize the vertex buffer view.
                 mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
@@ -381,7 +379,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             mCommandList.OMSetRenderTargets(rtvHandle, null);
 
             // Record commands.
-            var clearColor = System.Drawing.Color.FromArgb(255, 0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f));
+            var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
             mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
             mCommandList.IASetVertexBuffers(0, mVertexBufferView);
@@ -401,7 +399,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             // maximize GPU utilization.
 
             // Signal and increment the fence value.
-            long fence = mFenceValue;
+            ulong fence = mFenceValue;
             mCommandQueue.Signal(mFence, fence);
             mFenceValue++;
 
@@ -414,7 +412,7 @@ namespace D3D12HelloWorld.HelloTriangle {
                 mFenceEvent.WaitOne();
             }
 
-            mFrameIndex = mSwapChain.GetCurrentBackBufferIndex();
+            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
         }
 
     }
