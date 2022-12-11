@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
+using Vortice.Mathematics;
 using static D3D12HelloWorld.StringExtensions;
 
 namespace D3D12HelloWorld {
@@ -264,14 +265,14 @@ namespace D3D12HelloWorld {
                             ParseArrayData(memberLines, ";;", ref nextUnparsedLineIndex, out var numberOfFaces, out var meshFaceArray);
                             meshFaces = ReadArrayOfArrays(meshFaceArray, 2)
                                        .Select(e => {
-                                           int.TryParse(e[0], out var numberOfIndices);
-                                           var faceVertexIndices = e[1].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                                                                           .Select(c => int.TryParse(c, out var com) ? com : 0)
-                                                                           .ToArray();
-                                           Debug.Assert(faceVertexIndices.Length == numberOfIndices);
-                                           return (NumberOfIndices: numberOfIndices,
-                                                   FaceVertexIndices: faceVertexIndices);
-                                       })
+                                                   int.TryParse(e[0], out var numberOfIndices);
+                                                   var faceVertexIndices = e[1].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                                                                   .Select(c => int.TryParse(c, out var com) ? com : 0)
+                                                                                   .ToArray();
+                                                   Debug.Assert(faceVertexIndices.Length == numberOfIndices);
+                                                   return (NumberOfIndices: numberOfIndices,
+                                                           FaceVertexIndices: faceVertexIndices);
+                                               })
                                        .ToArray();
                             Debug.Assert(meshFaces.Length == numberOfFaces);
                         }
@@ -409,32 +410,43 @@ namespace D3D12HelloWorld {
                 byte[] vertexData;
 
                 //Used with faceVertexIndices = new ushort[] { 0, 1, 2 }; above to ensure we render the indices in the correct order...
-                var aspectRatio = 1200 / 900.0f;
+                //var aspectRatio = 1200 / 900.0f;
                 //var triangleVertices = new[] {
-                //    new ColouredVertex { Position = new Vector3(0.0f, 0.25f * aspectRatio, 0.0f), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
-                //    new ColouredVertex { Position = new Vector3(0.25f, -0.25f * aspectRatio, 0.0f), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
-                //    new ColouredVertex { Position = new Vector3(-0.25f, -0.25f * aspectRatio, 0.0f), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //    new ColouredVertex(new Vector3(0.0f, 0.25f * aspectRatio, 0.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f),
+                //    new ColouredVertex(new Vector3(0.25f, -0.25f * aspectRatio, 0.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f),
+                //    new ColouredVertex(new Vector3(-0.25f, -0.25f * aspectRatio, 0.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f),
                 //};
                 //var triangleVertices = new[] {
-                //    new ColouredVertex { Position = new Vector3(0.0f, 0.25f * aspectRatio, 0.13f), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
-                //    new ColouredVertex { Position = new Vector3(0.25f, -0.25f * aspectRatio, 0.13f), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
-                //    new ColouredVertex { Position = new Vector3(-0.25f, -0.25f * aspectRatio, 0.13f), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //    new ColouredVertex(new Vector3(0.0f, 0.25f * aspectRatio, 0.13f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f),
+                //    new ColouredVertex(new Vector3(0.25f, -0.25f * aspectRatio, 0.13f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f),
+                //    new ColouredVertex(new Vector3(-0.25f, -0.25f * aspectRatio, 0.13f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f),
                 //};
 
 
                 //var triangleVertices = meshFaces.SelectMany(f => new[] {
-                //                                                new ColouredVertex { Position = mesh.Vertices[f[0]], Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
-                //                                                new ColouredVertex { Position = mesh.Vertices[f[1]], Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
-                //                                                new ColouredVertex { Position = mesh.Vertices[f[2]], Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //                                                new ColouredVertex(mesh.Vertices[f[0]], new Vector4(1.0f, 0.0f, 0.0f, 1.0f),
+                //                                                new ColouredVertex(mesh.Vertices[f[1]], new Vector4(0.0f, 1.0f, 0.0f, 1.0f),
+                //                                                new ColouredVertex(mesh.Vertices[f[2]], new Vector4(0.0f, 0.0f, 1.0f, 1.0f),
                 //                                            });
                 //var worldMatrix = mFrames[mesh] * Matrix4x4.CreateScale(0.001f);// * Matrix4x4.CreateTranslation(0.0f, 0.0f, 0.25f);
+                //Front or back of ship, rotated 90 degrees on its side (mast pointing to the right)
                 //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / -2.0)) * Matrix4x4.CreateRotationY((float)(Math.PI / -2.0)) * Matrix4x4.CreateRotationZ((float)(Math.PI / -2.0));
-                var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
-                var triangleVertices = meshFaces.SelectMany(f => new[] {
-                                                                new ColouredVertex { Position = Vector3.Transform(mesh.Vertices[f[0]], worldMatrix), Colour = new Vector4(1.0f, 0.0f, 0.0f, 1.0f), },
-                                                                new ColouredVertex { Position = Vector3.Transform(mesh.Vertices[f[1]], worldMatrix), Colour = new Vector4(0.0f, 1.0f, 0.0f, 1.0f), },
-                                                                new ColouredVertex { Position = Vector3.Transform(mesh.Vertices[f[2]], worldMatrix), Colour = new Vector4(0.0f, 0.0f, 1.0f, 1.0f), },
+                //Who knows what, totally indecipherable to me... it should be a side view of the ship, port or starboard, but it's clearly not.  So, is the rendering wrong?  Is the model loading wrong?
+                //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
+                //Now passing correct raw vertex buffer instead of a hand-made triangle list....
+                var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / -2.0));
+                var rand = new Random();
+                //var colours = new[] { new Vector4(1.0f, 1.0f, 0.0f, 0.0f), new Vector4(1.0f, 0.0f, 1.0f, 0.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f) };  //Alpha, R, G, B (unlike Colour4 which is R, G, B, A)  didn't work, all blue maybe?  background is blue afterall
+                var colours = new[] { new Vector4(1.0f, 0.0f, 0.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f) };  //?
+                var triangleVertices = mesh.Vertices.Select(f => {
+                                                                var colour = colours[rand.Next(2)];
+                                                                return new ColouredVertex(Vector3.Transform(f, worldMatrix), colours[rand.Next(2)]);
                                                             });
+                //var triangleVertices = meshFaces.SelectMany(f => new[] {
+                //                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[0]], worldMatrix), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
+                //                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[1]], worldMatrix), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
+                //                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[2]], worldMatrix), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
+                //                                            });
                 vertexData = triangleVertices.SelectMany(v => BitConverter.GetBytes(v.Position.X)
                                                                           .Concat(BitConverter.GetBytes(v.Position.Y))
                                                                           .Concat(BitConverter.GetBytes(v.Position.Z))
@@ -454,12 +466,6 @@ namespace D3D12HelloWorld {
 
                 var vertexBufferView = new VertexBufferView(vertexBuffer.GPUVirtualAddress, (int)vertexBuffer.Description.Width, Unsafe.SizeOf<ColouredVertex>());
 
-                //Define the vertex input layout
-                var inputElements = new[] {
-                    new InputElementDescription("POSITION", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
-                    new InputElementDescription("COLOR", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
-                };
-
                 var shader = new ColourShader();
 
                 var shaderGenerator = new ShaderGenerator(shader);
@@ -471,7 +477,7 @@ namespace D3D12HelloWorld {
                 //context.Visit(shader);
 
                 //Describe and create the graphics pipeline state object (PSO)
-                //ID3D12PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(inputElements);
+                //ID3D12PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(ColouredVertex.InputElements);
                 ID3D12PipelineState pipelineState = null;
 
                 var primitiveWorldMatrix = mFrames[mesh];
@@ -621,10 +627,25 @@ namespace D3D12HelloWorld {
         #endregion
     }
 
-    public struct ColouredVertex {
-        public Vector3 Position;
-        public Vector4 Colour;
-    }
+    public readonly struct ColouredVertex {
+        /// <summary>
+        /// Defines the vertex input layout.
+        /// NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
+        ///       compiled Vertex Shader's Input parameters - PositionSemanticAttribute and ColorSemanticAttribute in this case per the VSInput struct
+        /// </summary>
+        public static readonly InputElementDescription[] InputElements = new[] {
+            new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
+            new InputElementDescription("Color", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
+        };
+
+        public ColouredVertex(in Vector3 position, in Vector4 colour) {
+            Position = position;
+            Colour = colour;
+        }
+
+        public readonly Vector3 Position;
+        public readonly Vector4 Colour;
+    };
     public struct FlatShadedVertex {
         public Vector3 Position;
         public Vector2 TexCoord;

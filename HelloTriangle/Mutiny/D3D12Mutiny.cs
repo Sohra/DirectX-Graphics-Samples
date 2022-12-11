@@ -351,7 +351,6 @@ namespace D3D12HelloWorld.Mutiny {
                 ReadOnlyMemory<byte> vertexShader = CompileBytecode(DxcShaderStage.Vertex, "HelloTriangleShaders.hlsl", "VSMain");
                 ReadOnlyMemory<byte> pixelShader = CompileBytecode(DxcShaderStage.Pixel, "HelloTriangleShaders.hlsl", "PSMain");
 
-
                 // Describe and create the graphics pipeline state object (PSO).
                 var psoDesc = new GraphicsPipelineStateDescription {
                     InputLayout = new InputLayoutDescription(Vertex.InputElements),
@@ -379,32 +378,32 @@ namespace D3D12HelloWorld.Mutiny {
             // to record yet. The main loop expects it to be closed, so close it now.
             mCommandList.Close();
 
-            // Create the vertex buffer.
-            {
-                // Define the geometry for a triangle.
-                var triangleVertices = new[] {
-                    new Vertex(new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
-                    new Vertex(new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
-                    new Vertex(new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
-                };
+            //// Create the vertex buffer.
+            //{
+            //    // Define the geometry for a triangle.
+            //    var triangleVertices = new[] {
+            //        new Vertex(new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
+            //        new Vertex(new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
+            //        new Vertex(new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
+            //    };
 
-                int vertexBufferSize = triangleVertices.Length * Vertex.SizeInBytes;
+            //    int vertexBufferSize = triangleVertices.Length * Vertex.SizeInBytes;
 
-                // Note: using upload heaps to transfer static data like vert buffers is not 
-                // recommended. Every time the GPU needs it, the upload heap will be marshalled 
-                // over. Please read up on Default Heap usage. An upload heap is used here for 
-                // code simplicity and because there are very few verts to actually transfer.
-                mVertexBuffer = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-                                                                ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
+            //    // Note: using upload heaps to transfer static data like vert buffers is not 
+            //    // recommended. Every time the GPU needs it, the upload heap will be marshalled 
+            //    // over. Please read up on Default Heap usage. An upload heap is used here for 
+            //    // code simplicity and because there are very few verts to actually transfer.
+            //    mVertexBuffer = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+            //                                                    ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
 
-                // Copy the triangle data to the vertex buffer.
-                mVertexBuffer.SetData(triangleVertices);
+            //    // Copy the triangle data to the vertex buffer.
+            //    mVertexBuffer.SetData(triangleVertices);
 
-                // Initialize the vertex buffer view.
-                mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
-                mVertexBufferView.StrideInBytes = Vertex.SizeInBytes;
-                mVertexBufferView.SizeInBytes = vertexBufferSize;
-            }
+            //    // Initialize the vertex buffer view.
+            //    mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
+            //    mVertexBufferView.StrideInBytes = Vertex.SizeInBytes;
+            //    mVertexBufferView.SizeInBytes = vertexBufferSize;
+            //}
 
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
@@ -469,8 +468,8 @@ namespace D3D12HelloWorld.Mutiny {
             //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
             //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
             //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
-            //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so divide by 8
-            mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() / 8) / 3, 1, 0, 0, 0);
+            //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so rightshift by 3 (or divide by 8)
+            mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.RenderTarget, ResourceStates.Present));
