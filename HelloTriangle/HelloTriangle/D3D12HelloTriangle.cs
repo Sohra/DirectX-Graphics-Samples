@@ -406,9 +406,8 @@ namespace D3D12HelloWorld.HelloTriangle {
             // Wait until the previous frame is finished.
             if (mFence.CompletedValue < fence)
             {
-                //mFenceEvent = new ManualResetEvent(false); //TODO??
-                //mFenceEvent.Reset();//TODO?
-                mFence.SetEventOnCompletion(fence, mFenceEvent);
+                mFenceEvent.Reset();
+                mFence.SetEventOnCompletion(fence, mFenceEvent).CheckError();
                 mFenceEvent.WaitOne();
             }
 

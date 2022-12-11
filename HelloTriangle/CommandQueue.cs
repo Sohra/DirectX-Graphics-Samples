@@ -68,7 +68,7 @@ namespace D3D12HelloWorld {
             Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Waiting for {requiredFenceValue}, currently at {currentFenceValue}",
                              nameof(WaitForFence), fenceValue, fence.CompletedValue);
             using var fenceEvent = new ManualResetEvent(false);
-            fence.SetEventOnCompletion(fenceValue, fenceEvent);
+            fence.SetEventOnCompletion(fenceValue, fenceEvent).CheckError();
 
             fenceEvent.WaitOne();
         }
@@ -79,7 +79,7 @@ namespace D3D12HelloWorld {
                 return Task.CompletedTask;
 
             var fenceEvent = new ManualResetEvent(false);
-            fence.SetEventOnCompletion(fenceValue, fenceEvent);
+            fence.SetEventOnCompletion(fenceValue, fenceEvent).CheckError();
 
             return WaitHandleAsyncFactory.FromWaitHandle(fenceEvent);
         }*/

@@ -388,7 +388,8 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             mCommandQueue.Signal(mFence, mFenceValues[mFrameIndex]);
 
             // Wait until the fence has been processed.
-            mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent);
+            mFenceEvent.Reset();
+            mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent).CheckError();
             mFenceEvent.WaitOne();
 
             // Increment the fence value for the current frame.
@@ -408,9 +409,8 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             // If the next frame is not ready to be rendered yet, wait until it is ready.
             if (mFence.CompletedValue < mFenceValues[mFrameIndex])
             {
-                //mFenceEvent = new ManualResetEvent(false); //TODO??
-                //mFenceEvent.Reset();//TODO?
-                mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent);
+                mFenceEvent.Reset();
+                mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent).CheckError();
                 mFenceEvent.WaitOne();
             }
 

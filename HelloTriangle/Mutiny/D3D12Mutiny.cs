@@ -1,11 +1,9 @@
-﻿using DirectX12GameEngine.Shaders;
-using Serilog;
+﻿using Serilog;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -20,9 +18,25 @@ namespace D3D12HelloWorld.Mutiny {
     public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
 
-        struct Vertex {
-            public Vector3 Position;
-            public Color4 Colour;
+        readonly struct Vertex {
+            public static readonly unsafe int SizeInBytes = sizeof(Vertex);
+            /// <summary>
+            /// Defines the vertex input layout.
+            /// NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
+            ///       compiled Vertex Shader's Input parameters - PositionSemanticAttribute and ColorSemanticAttribute in this case per the VSInput struct
+            /// </summary>
+            public static readonly InputElementDescription[] InputElements = new[] {
+                new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
+                new InputElementDescription("Color", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
+            };
+
+            public Vertex(in Vector3 position, in Color4 colour) {
+                Position = position;
+                Colour = colour;
+            }
+
+            public readonly Vector3 Position;
+            public readonly Color4 Colour;
         };
 
         //Viewport dimensions
@@ -338,18 +352,9 @@ namespace D3D12HelloWorld.Mutiny {
                 ReadOnlyMemory<byte> pixelShader = CompileBytecode(DxcShaderStage.Pixel, "HelloTriangleShaders.hlsl", "PSMain");
 
 
-                // Define the vertex input layout.
-                //NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
-                //      compiled Vertex Shader's Input parameters - PositionSemanticAttribute and ColorSemanticAttribute in this case per the VSInput struct
-                var inputElementDescs = new[]
-                {
-                    new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
-                    new InputElementDescription("Color", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
-                };
-
                 // Describe and create the graphics pipeline state object (PSO).
                 var psoDesc = new GraphicsPipelineStateDescription {
-                    InputLayout = new InputLayoutDescription(inputElementDescs),
+                    InputLayout = new InputLayoutDescription(Vertex.InputElements),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
                     PixelShader = pixelShader,
@@ -377,14 +382,13 @@ namespace D3D12HelloWorld.Mutiny {
             // Create the vertex buffer.
             {
                 // Define the geometry for a triangle.
-                var triangleVertices = new[]
-                {
-                    new Vertex { Position = new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), Colour = new Color4(1.0f, 0.0f, 0.0f, 1.0f), },
-                    new Vertex { Position = new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), Colour = new Color4(0.0f, 1.0f, 0.0f, 1.0f), },
-                    new Vertex { Position = new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), Colour = new Color4(0.0f, 0.0f, 1.0f, 1.0f), },
+                var triangleVertices = new[] {
+                    new Vertex(new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
+                    new Vertex(new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
+                    new Vertex(new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
                 };
 
-                int vertexBufferSize = triangleVertices.Length * Unsafe.SizeOf<Vertex>();
+                int vertexBufferSize = triangleVertices.Length * Vertex.SizeInBytes;
 
                 // Note: using upload heaps to transfer static data like vert buffers is not 
                 // recommended. Every time the GPU needs it, the upload heap will be marshalled 
@@ -398,7 +402,7 @@ namespace D3D12HelloWorld.Mutiny {
 
                 // Initialize the vertex buffer view.
                 mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
-                mVertexBufferView.StrideInBytes = Unsafe.SizeOf<Vertex>();
+                mVertexBufferView.StrideInBytes = Vertex.SizeInBytes;
                 mVertexBufferView.SizeInBytes = vertexBufferSize;
             }
 
@@ -484,7 +488,7 @@ namespace D3D12HelloWorld.Mutiny {
             mCommandQueue.Signal(mFence, requiredFenceValue);
 
             // Wait until the fence has been processed.
-            //WaitForFence(mFence, currentFenceValue);
+            mFenceEvent.Reset();
             if (mFence.SetEventOnCompletion(requiredFenceValue, mFenceEvent).Success) {
                 Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Waiting for {requiredFenceValue}, currently at {currentFenceValue}",
                                  nameof(WaitForGpu), requiredFenceValue, mFence.CompletedValue);
@@ -509,9 +513,9 @@ namespace D3D12HelloWorld.Mutiny {
                              nameof(MoveToNextFrame), currentFenceValue, mFrameIndex, mFenceValues[mFrameIndex]);
 
             // If the next frame is not ready to be rendered yet, wait until it is ready.
-            //WaitForFence(mFence, mFenceValues[mFrameIndex]);
             if (mFence.CompletedValue < mFenceValues[mFrameIndex]) {
-                mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent);
+                mFenceEvent.Reset();
+                mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent).CheckError();
                 Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Waiting for {requiredFenceValue}, currently at {currentFenceValue}",
                                  nameof(MoveToNextFrame), mFenceValues[mFrameIndex], mFence.CompletedValue);
                 mFenceEvent.WaitOne();

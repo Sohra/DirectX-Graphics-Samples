@@ -24,7 +24,7 @@ namespace D3D12HelloWorld.HelloTriangle
     /// </summary>
     class Shaders
     {
-        [ShaderMethod("return (D3D12HelloWorld::HelloTriangle::PSInput)0;", typeof(VSInput), typeof(PSInput))]
+        [ShaderMethod]
         [Shader("vertex")]
         public PSInput VSMain(VSInput input)
         {
@@ -34,7 +34,7 @@ namespace D3D12HelloWorld.HelloTriangle
             return result;
         }
 
-        [ShaderMethod("return (DirectX12GameEngine::Shaders::PSOutput)0;", typeof(PSInput), typeof(PSOutput))]
+        [ShaderMethod]
         [Shader("pixel")]
         public PSOutput PSMain(PSInput input)
         {

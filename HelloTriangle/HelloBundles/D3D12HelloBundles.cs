@@ -1,7 +1,6 @@
 ﻿using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
-using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -402,9 +401,8 @@ namespace D3D12HelloWorld.HelloBundles {
             // Wait until the previous frame is finished.
             if (mFence.CompletedValue < fence)
             {
-                //mFenceEvent = new ManualResetEvent(false); //TODO??
-                //mFenceEvent.Reset();//TODO?
-                mFence.SetEventOnCompletion(fence, mFenceEvent);
+                mFenceEvent.Reset();
+                mFence.SetEventOnCompletion(fence, mFenceEvent).CheckError();
                 mFenceEvent.WaitOne();
             }
 
