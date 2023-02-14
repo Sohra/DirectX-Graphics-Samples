@@ -1,4 +1,5 @@
-﻿using Serilog;
+﻿using D3D12HelloWorld.Rendering;
+using Serilog;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
@@ -14,7 +15,8 @@ using Vortice.Dxc;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace D3D12HelloWorld.Mutiny {
+namespace D3D12HelloWorld.Mutiny
+{
     public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
 
@@ -53,18 +55,18 @@ namespace D3D12HelloWorld.Mutiny {
         readonly ID3D12Resource[] mRenderTargets;
         readonly ID3D12CommandAllocator[] mCommandAllocators;
         ID3D12CommandQueue mCommandQueue;
-        CommandQueue mCopyCommandQueue;
         ID3D12RootSignature mRootSignature;
         ID3D12DescriptorHeap mRtvHeap;
-        ID3D12PipelineState mPipelineState;
-        ID3D12GraphicsCommandList mCommandList;
+        ID3D12PipelineState mPipelineState;  //Potentially replaceable by mGraphicsDevice
+        ID3D12GraphicsCommandList mCommandList;  //Potentially replaceable by mGraphicsDevice
+        GraphicsDevice mGraphicsDevice;
         int mRtvDescriptorSize;
 
         // App resources.
+        Sampler mDefaultSampler;
         ID3D12Resource mIndexBuffer;
         ID3D12Resource mVertexBuffer;
-        IndexBufferView mIndexBufferView;
-        VertexBufferView mVertexBufferView;
+        Model mModel;
 
         // Synchronization objects.
         int mFrameIndex;
@@ -111,6 +113,7 @@ namespace D3D12HelloWorld.Mutiny {
         public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
+            mDefaultSampler = new Sampler(mDevice);
         }
 
         /// <summary>
@@ -162,6 +165,7 @@ namespace D3D12HelloWorld.Mutiny {
                 mRenderTargets[i].Dispose();
             }
             mCommandList.Dispose();
+            mGraphicsDevice.Dispose();
 
             mFenceEvent.Dispose();
             //Replacing CloseHandle(mFenceEvent);
@@ -169,7 +173,6 @@ namespace D3D12HelloWorld.Mutiny {
             mRtvHeap.Dispose();
             mSwapChain.Dispose();
             mCommandQueue.Dispose();
-            mCopyCommandQueue.Dispose();
 
             mDevice.Dispose();
             //mFactory.Dispose();
@@ -279,7 +282,6 @@ namespace D3D12HelloWorld.Mutiny {
             // Describe and create the command queue.
             mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
             mCommandQueue.Name = "Direct Queue";
-            mCopyCommandQueue = new CommandQueue(mDevice, CommandListType.Copy, "Copy Queue");
 
             // Describe and create the swap chain.
             var swapChainDesc = new SwapChainDescription1 {
@@ -378,6 +380,9 @@ namespace D3D12HelloWorld.Mutiny {
             // to record yet. The main loop expects it to be closed, so close it now.
             mCommandList.Close();
 
+            //Rather than just a command list, use the GraphicsDevice abstraction which creates both the CommandList
+            mGraphicsDevice = new GraphicsDevice(mDevice);
+
             //// Create the vertex buffer.
             //{
             //    // Define the geometry for a triangle.
@@ -407,13 +412,12 @@ namespace D3D12HelloWorld.Mutiny {
 
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
-                var modelLoader = XModelLoader.Create3(mDevice, mCopyCommandQueue, @"..\..\..\Mutiny\Models\cannon_boss.X");
-                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState) firstMesh
+                var modelLoader = XModelLoader.Create3(mGraphicsDevice, @"..\..\..\Mutiny\Models\cannon_boss.X");
+                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model) firstMesh
                     = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny\Textures", false)).Result.First();
                 mIndexBuffer = firstMesh.IndexBuffer;
                 mVertexBuffer = firstMesh.VertexBuffer;
-                mIndexBufferView = firstMesh.IndexBufferView;
-                mVertexBufferView = firstMesh.VertexBufferView;
+                mModel = firstMesh.Model;
             }
 
             // Create synchronization objects and wait until assets have been uploaded to the GPU.
@@ -461,15 +465,59 @@ namespace D3D12HelloWorld.Mutiny {
             // Record commands.
             var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
+
+            int renderTargetCount = 1;
             mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-            mCommandList.IASetIndexBuffer(mIndexBufferView);
-            mCommandList.IASetVertexBuffers(0, mVertexBufferView);
+            foreach (var mesh in mModel.Meshes) {
+                var material = mModel.Materials[mesh.MaterialIndex];
+
+                //mCommandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
+                mCommandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews);
+
+                //CommandList.SetPipelineState(material.PipelineState) performs:
+                if (material.PipelineState.IsCompute) {
+                    mCommandList.SetComputeRootSignature(material.PipelineState.RootSignature);
+                }
+                else {
+                    mCommandList.SetGraphicsRootSignature(material.PipelineState.RootSignature);
+                }
+                mCommandList.SetPipelineState(material.PipelineState.NativePipelineState);
+
+                int rootParameterIndex = 0;
+                mCommandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
+                rootParameterIndex++;
+                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, GlobalBuffer.DefaultConstantBufferView);
+                rootParameterIndex++;
+                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, ViewProjectionTransformBuffer.DefaultConstantBufferView);
+                rootParameterIndex++;
+                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[i].DefaultConstantBufferView);
+                rootParameterIndex++;
+                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, DirectionalLightGroupBuffer.DefaultConstantBufferView);
+
+                //mCommandList.SetGraphicsRootSampler(rootParameterIndex++, DefaultSampler.CpuDescriptorHandle, 1);
+                mGraphicsDevice.CommandList.SetGraphicsRootSampler
+                
+                var baseDescriptor = mDefaultSampler.CpuDescriptorHandle;
+                var descriptorCount = 1;
+
+                long gpuDescriptor = CopyDescriptors(descriptorAllocator, baseDescriptor, descriptorCount);
+                
+                CpuDescriptorHandle intPtr = descriptorAllocator.Allocate(descriptorCount);
+                mDevice.NativeDevice.CopyDescriptorsSimple(descriptorCount, intPtr, baseDescriptor, descriptorAllocator.DescriptorHeap.Description.Type);
+                GpuDescriptorHandle gpuDescriptor = descriptorAllocator.GetGpuDescriptorHandle(intPtr);
+
+                mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, gpuDescriptor);
+            }
+
             //mCommandList.SetGraphicsRootConstantBufferView(0, ViewProjectionTransformBuffer);
             //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
             //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
             //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
             //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so rightshift by 3 (or divide by 8)
-            mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
+            //mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
+            //Blank
+            //mCommandList.DrawInstanced(3, mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes / 3, 0, 0);
+            mCommandList.DrawInstanced(mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes, 1, 0, 0);
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.RenderTarget, ResourceStates.Present));

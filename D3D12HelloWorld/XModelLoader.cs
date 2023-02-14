@@ -1,4 +1,5 @@
-﻿using DirectX12GameEngine.Shaders;
+﻿using D3D12HelloWorld.Rendering;
+using DirectX12GameEngine.Shaders;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -7,20 +8,18 @@ using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using System.Windows.Media.Imaging;
 using Vortice.Direct3D12;
-using Vortice.DXGI;
-using Vortice.Mathematics;
 using static D3D12HelloWorld.StringExtensions;
+using Format = Vortice.DXGI.Format;
 
 namespace D3D12HelloWorld {
     class XModelLoader {
-        readonly ID3D12Device mDevice;
-        readonly CommandQueue mCopyCommandQueue;
+        readonly GraphicsDevice mDevice;
         readonly IDictionary<Mesh, Matrix4x4> mFrames;
 
-        XModelLoader(ID3D12Device device, CommandQueue copyCommandQueue, IDictionary<Mesh, Matrix4x4> frames) {
+        XModelLoader(GraphicsDevice device, IDictionary<Mesh, Matrix4x4> frames) {
             mDevice = device ?? throw new ArgumentNullException(nameof(device));
-            mCopyCommandQueue = copyCommandQueue ?? throw new ArgumentNullException(nameof(copyCommandQueue));
             mFrames = frames ?? throw new ArgumentNullException(nameof(frames));
             //mCreatedMaterials = new Dictionary<Material, DirectX12GameEngine.Rendering.Material>();
         }
@@ -31,7 +30,7 @@ namespace D3D12HelloWorld {
         /// <param name="device"></param>
         /// <param name="modelPath"></param>
         /// <returns></returns>
-        public static XModelLoader Create3(ID3D12Device device, CommandQueue copyCommandQueue, string modelPath) {
+        public static XModelLoader Create3(GraphicsDevice device, string modelPath) {
             ReadOnlySpan<char> xFile = File.ReadAllText(modelPath).AsSpan();
 
             var enumerator = new LineSplitEnumerator(xFile);
@@ -333,7 +332,7 @@ namespace D3D12HelloWorld {
                 }
             }
 
-            return new XModelLoader(device, copyCommandQueue, frames);
+            return new XModelLoader(device, frames);
         }
 
         /// <summary>
@@ -345,24 +344,20 @@ namespace D3D12HelloWorld {
         /// <param name="data"></param>
         /// <param name="bufferFlags"></param>
         /// <returns></returns>
-        public static ID3D12Resource CreateBufferOnDefaultHeap<T>(ID3D12Device device, CommandQueue copyCommandQueue, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
+        public static ID3D12Resource CreateBufferOnDefaultHeap<T>(GraphicsDevice device, CommandQueue copyCommandQueue, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
             //Create buffer
             var size = (ulong)(data.Length * Unsafe.SizeOf<T>());
-            ID3D12Resource buffer = device.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.Common);
+            ID3D12Resource buffer = device.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.Common);
 
             //Set data
-            using ID3D12Resource uploadBuffer = CreateBufferOnUploadHeap(device, data, ResourceFlags.None);
+            using ID3D12Resource uploadBuffer = CreateBufferOnUploadHeap(device.NativeDevice, data, ResourceFlags.None);
             //Copy from the upload buffer to the buffer
-            using ID3D12CommandAllocator commandAllocator = device.CreateCommandAllocator(CommandListType.Copy);
-            commandAllocator.Name = "Copy Allocator";
-            using ID3D12GraphicsCommandList copyCommandList = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Copy, commandAllocator, null);
-            copyCommandList.Name = "Copy Command List";
+            using var copyCommandList = new CommandList(device, CommandListType.Copy);
             copyCommandList.CopyBufferRegion(buffer, 0, uploadBuffer, 0, size);
-            copyCommandList.Close();
 
             //Using this abstraction for ID3D12CommandQueue (and its abstraction for closed command lists), can force a wait for the queue to complete execution and ensure CPU-GPU synchronisation
             //so that when execution leaves this method, the CPU doesn't clean up resources the GPU still requires resulting in an SEHException
-            var compiledCommandList = new CompiledCommandList(copyCommandList, commandAllocator);
+            CompiledCommandList compiledCommandList = copyCommandList.Close();
             copyCommandQueue.ExecuteCommandLists(compiledCommandList);
 
             return buffer;
@@ -392,14 +387,15 @@ namespace D3D12HelloWorld {
         /// <param name="texturesFolder"></param>
         /// <param name="useTextureCoordinates"></param>
         /// <returns></returns>
-        public async Task<IEnumerable<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState/*, DescriptorSet ShaderResourceViewDescriptorSet, DescriptorSet SamplerDescriptorSet*/)>> GetFlatShadedMeshesAsync(string texturesFolder, bool useTextureCoordinates) {
-            var meshes = new List<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState/*, DescriptorSet ShaderResourceViewDescriptorSet, DescriptorSet SamplerDescriptorSet*/)>();
+        public async Task<IEnumerable<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model)>> GetFlatShadedMeshesAsync(string texturesFolder, bool useTextureCoordinates) {
+            var meshes = new List<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model)>();
+
             foreach (var mesh in mFrames.Keys) {
                 var faceVertexIndices = mesh.FaceVertexIndices.Select(Convert.ToUInt16).ToArray();
                 //Used with custom triangle vertices below
                 //faceVertexIndices = new ushort[] { 0, 1, 2 };
                 var areIndices32Bit = System.Runtime.InteropServices.Marshal.SizeOf(faceVertexIndices.GetType().GetElementType()) == sizeof(int);
-                ID3D12Resource indexBuffer = CreateBufferOnDefaultHeap(mDevice, mCopyCommandQueue, GetIndexBuffer(faceVertexIndices), ResourceFlags.None);
+                ID3D12Resource indexBuffer = CreateBufferOnDefaultHeap(mDevice, mDevice.CopyCommandQueue, GetIndexBuffer(faceVertexIndices), ResourceFlags.None);
                 var indexBufferView = new IndexBufferView(indexBuffer.GPUVirtualAddress, (int)indexBuffer.Description.Width, areIndices32Bit);
 
                 int i = 0;
@@ -434,19 +430,21 @@ namespace D3D12HelloWorld {
                 //Who knows what, totally indecipherable to me... it should be a side view of the ship, port or starboard, but it's clearly not.  So, is the rendering wrong?  Is the model loading wrong?
                 //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
                 //Now passing correct raw vertex buffer instead of a hand-made triangle list....
-                var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / -2.0));
-                var rand = new Random();
-                //var colours = new[] { new Vector4(1.0f, 1.0f, 0.0f, 0.0f), new Vector4(1.0f, 0.0f, 1.0f, 0.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f) };  //Alpha, R, G, B (unlike Colour4 which is R, G, B, A)  didn't work, all blue maybe?  background is blue afterall
-                var colours = new[] { new Vector4(1.0f, 0.0f, 0.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f) };  //?
-                var triangleVertices = mesh.Vertices.Select(f => {
-                                                                var colour = colours[rand.Next(2)];
-                                                                return new ColouredVertex(Vector3.Transform(f, worldMatrix), colours[rand.Next(2)]);
-                                                            });
-                //var triangleVertices = meshFaces.SelectMany(f => new[] {
-                //                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[0]], worldMatrix), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
-                //                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[1]], worldMatrix), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
-                //                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[2]], worldMatrix), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
+                var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
+                //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
+                //var rand = new Random();
+                ////var colours = new[] { new Vector4(1.0f, 1.0f, 0.0f, 0.0f), new Vector4(1.0f, 0.0f, 1.0f, 0.0f), new Vector4(1.0f, 0.0f, 0.0f, 1.0f) };  //Alpha, R, G, B (unlike Colour4 which is R, G, B, A)  didn't work, all blue maybe?  background is blue afterall
+                //var colours = new[] { new Vector4(1.0f, 0.0f, 0.0f, 1.0f), new Vector4(0.0f, 1.0f, 0.0f, 1.0f), new Vector4(0.0f, 0.0f, 1.0f, 1.0f) };  //?
+                //var triangleVertices = mesh.Vertices.Select(f => {
+                //                                                var colour = colours[rand.Next(2)];
+                //                                                return new ColouredVertex(Vector3.Transform(f, worldMatrix), colours[rand.Next(2)]);
                 //                                            });
+                /*
+                var triangleVertices = meshFaces.SelectMany(f => new[] {
+                                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[0]], worldMatrix), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
+                                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[1]], worldMatrix), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
+                                                                new ColouredVertex(Vector3.Transform(mesh.Vertices[f[2]], worldMatrix), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
+                                                            });
                 vertexData = triangleVertices.SelectMany(v => BitConverter.GetBytes(v.Position.X)
                                                                           .Concat(BitConverter.GetBytes(v.Position.Y))
                                                                           .Concat(BitConverter.GetBytes(v.Position.Z))
@@ -455,37 +453,152 @@ namespace D3D12HelloWorld {
                                                                           .Concat(BitConverter.GetBytes(v.Colour.Z))
                                                                           .Concat(BitConverter.GetBytes(v.Colour.W)))
                                              .ToArray();
+                */
+                var triangleVertices = meshFaces.SelectMany(f => new[] {
+                                                                new FlatShadedVertex(Vector3.Transform(mesh.Vertices[f[0]], worldMatrix), mesh.TextureCoords[f[0]]),
+                                                                new FlatShadedVertex(Vector3.Transform(mesh.Vertices[f[1]], worldMatrix), mesh.TextureCoords[f[1]]),
+                                                                new FlatShadedVertex(Vector3.Transform(mesh.Vertices[f[2]], worldMatrix), mesh.TextureCoords[f[2]]),
+                                                            });
+                vertexData = triangleVertices.SelectMany(v => BitConverter.GetBytes(v.Position.X)
+                                                                          .Concat(BitConverter.GetBytes(v.Position.Y))
+                                                                          .Concat(BitConverter.GetBytes(v.Position.Z))
+                                                                          .Concat(BitConverter.GetBytes(v.TexCoord.X))
+                                                                          .Concat(BitConverter.GetBytes(v.TexCoord.Y)))
+                                             .ToArray();
 
                 // Note: using upload heaps to transfer static data like vert buffers is not 
                 // recommended. Every time the GPU needs it, the upload heap will be marshalled 
                 // over. Please read up on Default Heap usage. An upload heap is used here for 
                 // code simplicity and because there are very few verts to actually transfer.
-                var vertexBuffer = CreateBufferOnUploadHeap(mDevice, new Span<byte>(vertexData), ResourceFlags.None);
+                var vertexBuffer = CreateBufferOnUploadHeap(mDevice.NativeDevice, new Span<byte>(vertexData), ResourceFlags.None);
                 //The above overload, because its Dimension is Buffer but its HeapType is Upload instead of Default, call Map(0), data.CopyTo, then Unmap(0)
 
 
-                var vertexBufferView = new VertexBufferView(vertexBuffer.GPUVirtualAddress, (int)vertexBuffer.Description.Width, Unsafe.SizeOf<ColouredVertex>());
+                //var vertexBufferView = new VertexBufferView(vertexBuffer.GPUVirtualAddress, (int)vertexBuffer.Description.Width, Unsafe.SizeOf<ColouredVertex>());
+                var vertexBufferView = new VertexBufferView(vertexBuffer.GPUVirtualAddress, (int)vertexBuffer.Description.Width, Unsafe.SizeOf<FlatShadedVertex>());
 
-                var shader = new ColourShader();
+                IShader shader = null;
+                if (mesh.Materials.HasValue) {
+                    var firstMaterialDefinition = mesh.Materials.Value.Materials.First();
+                    var textureFile = new FileInfo(Path.Combine(texturesFolder, firstMaterialDefinition.TextureFilename));
+                    if (textureFile.Exists) {
+                        using (FileStream stream = File.OpenRead(textureFile.FullName)) {
+                            Texture2dBuilder textureBuilder = textureFile.Extension switch {
+                                ".dds" => new DdsTexture2dBuilder(mDevice),
+                                ".jpg" => new JpgTexture2dBuilder(mDevice),
+                                _ => throw new NotSupportedException($"Cannot load {textureFile.Extension} images.  Only DDS or JPG supported for use as textures."),
+                            };
 
-                var shaderGenerator = new ShaderGenerator(shader);
-                ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                ShaderBytecode vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                ShaderBytecode pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
+                            ID3D12Resource diffuseTexture = textureBuilder.Create2dTexture(stream);
 
-                //var context = new ShaderGeneratorContext(mDevice);
-                //context.Visit(shader);
+                            shader = new TextureShader(diffuseTexture, true);
+                        }
+                    }
+                }
+                else {
+                    shader = new ColourShader();
+                    //var shaderGenerator = new ShaderGenerator(shader);
+                    //ShaderGeneratorResult result = shaderGenerator.GenerateShader();
+                    //ShaderBytecode vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
+                    //ShaderBytecode pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
+                }
+
+                var context = new ShaderGeneratorContext(mDevice);
+                context.Visit(shader);
 
                 //Describe and create the graphics pipeline state object (PSO)
                 //ID3D12PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(ColouredVertex.InputElements);
-                ID3D12PipelineState pipelineState = null;
+                PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(FlatShadedVertex.InputElements);
+                //ID3D12PipelineState pipelineState = null;
 
                 var primitiveWorldMatrix = mFrames[mesh];
-                meshes.Add((indexBuffer, vertexBuffer, indexBufferView, vertexBufferView, primitiveWorldMatrix, pipelineState/*, context.CreateShaderResourceViewDescriptorSet(), context.CreateSamplerDescriptorSet()*/));
+                var material = new MaterialPass {
+                    PassIndex = 0,
+                    PipelineState = pipelineState,
+                    ShaderResourceViewDescriptorSet = context.CreateShaderResourceViewDescriptorSet(),
+                    SamplerDescriptorSet = context.CreateSamplerDescriptorSet(),
+                };
+
+                var meshDraw = new MeshDraw {
+                    IndexBufferView = indexBufferView,
+                    VertexBufferViews = new[] { vertexBufferView },
+                };
+                var model = new Model();
+                model.Materials.Add(material);
+                model.Meshes.Add(new Rendering.Mesh(meshDraw) { MaterialIndex = 0, WorldMatrix = primitiveWorldMatrix });
+                meshes.Add((indexBuffer, vertexBuffer, model));
             }
 
             return meshes.AsReadOnly();
         }
+
+        abstract class Texture2dBuilder {
+            readonly GraphicsDevice mDevice;
+
+            protected Texture2dBuilder(GraphicsDevice device) {
+                mDevice = device ?? throw new ArgumentNullException(nameof(device));
+            }
+
+            public ID3D12Resource Create2dTexture(FileStream stream) {
+                (Format format, uint width, uint height, byte[] data) = ReadImageStream(stream);
+                var textureDesc = ResourceDescription.Texture2D(format, width, height, 1, 1, 1, 0, ResourceFlags.None);
+
+                var texture2d = mDevice.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
+                                                                             textureDesc, ResourceStates.CopyDest, null);
+
+                ulong uploadBufferSize = texture2d.GetRequiredIntermediateSize(0, 1);
+                ID3D12Resource textureUploadHeap
+                    = mDevice.NativeDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+                                                                   ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
+
+                // Copy data to the intermediate upload heap and then schedule a copy from the upload heap to the Texture2D.
+                using var copyCommandList = new CommandList(mDevice, CommandListType.Copy);
+                copyCommandList.UpdateSubresource(mDevice.NativeDevice, texture2d, textureUploadHeap, 0, 0, data);
+
+                //Try using copy queue instead of BarrierTransition from CopyDest to PixelShaderResource
+                mDevice.CopyCommandQueue.ExecuteCommandLists(copyCommandList.Close());
+                return texture2d;
+            }
+
+            protected abstract (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream);
+        }
+
+        class DdsTexture2dBuilder : Texture2dBuilder {
+            public DdsTexture2dBuilder(GraphicsDevice device) : base(device) {
+            }
+
+            protected override (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream) {
+                var pfimConfig = new Pfim.PfimConfig();
+                Pfim.Dds image = Pfim.Dds.Create(stream, pfimConfig);
+
+                var format = image.Format == Pfim.ImageFormat.Rgba32
+                           ? Format.R8G8B8A8_UNorm
+                           : Format.D24_UNorm_S8_UInt;  //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
+
+                return (format, (uint)image.Width, (uint)image.Height, image.Data);
+            }
+        }
+
+        class JpgTexture2dBuilder : Texture2dBuilder {
+            public JpgTexture2dBuilder(GraphicsDevice device) : base(device) {
+            }
+
+            protected override (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream) {
+                var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var firstFrame = decoder.Frames.First();
+
+                var format = firstFrame.Format.BitsPerPixel == 32
+                           ? Format.R8G8B8A8_UNorm
+                           : Format.D24_UNorm_S8_UInt; //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
+                var pixelSizeInBytes = firstFrame.Format.BitsPerPixel / 8;
+                var stride = firstFrame.PixelWidth * pixelSizeInBytes;
+                var pixels = new byte[firstFrame.PixelHeight * stride];
+                firstFrame.CopyPixels(pixels, stride, 0);
+
+                return (format, (uint)firstFrame.PixelWidth, (uint)firstFrame.PixelHeight, pixels);
+            }
+        }
+
 
         private static Vector3[] GenerateVertexNormals(Mesh mesh) {
             var vertexNormals = new Vector3[mesh.Vertices.Length];
@@ -646,28 +759,37 @@ namespace D3D12HelloWorld {
         public readonly Vector3 Position;
         public readonly Vector4 Colour;
     };
-    public struct FlatShadedVertex {
-        public Vector3 Position;
-        public Vector2 TexCoord;
+    public readonly struct FlatShadedVertex {
+        /// <summary>
+        /// Defines the vertex input layout.
+        /// NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
+        ///       compiled Vertex Shader's Input parameters - PositionSemanticAttribute and TextureCoordinateSemantic in this case per the VSInput struct
+        /// </summary>
+        public static readonly InputElementDescription[] InputElements = new[] {
+            new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
+            new InputElementDescription("TexCoord", 0, Format.R32G32_Float, 12, 0, InputClassification.PerVertexData, 0),
+
+        };
+
+        public FlatShadedVertex(in Vector3 position, in Vector2 texCoord) {
+            Position = position;
+            TexCoord = texCoord;
+        }
+
+        public readonly Vector3 Position;
+        public readonly Vector2 TexCoord;
     }
 
     /// <summary>
     /// Based on https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/shaders.hlsl
     /// </summary>
-    class ColourShader {
-        //[ConstantBufferView]
-        //public readonly Matrix4x4[] WorldMatrices;
-
+    class ColourShader : IShader {
         [Shader("vertex")]
         [ShaderMethod]
         public PSCVInput VSMain([PositionSemantic] Vector4 position, [ColorSemantic] Vector4 colour/*, [SystemInstanceIdSemantic] uint instanceId*/) {
-            //Vector4 positionWS = Vector4.Transform(position, WorldMatrices[instanceId]);
-
             PSCVInput result;
             result.Position = position;
-            //result.Position = positionWS;
             result.Colour = colour;
-            //result.InstanceId = instanceId;
             return result;
         }
 
@@ -678,10 +800,55 @@ namespace D3D12HelloWorld {
             return input.Colour;
         }
 
-        public void Accept(/*ShaderGeneratorContext context*/) {
+        public void Accept(ShaderGeneratorContext context) {
             //Do nothing
-            //context.RootParameters.Add(new RootParameter(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter(new RootDescriptorTable(new DescriptorRange(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+        }
+    }
+
+    /// <summary>
+    /// Based on https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/shaders.hlsl
+    /// </summary>
+    class TextureShader : IShader {
+        public TextureShader(ID3D12Resource texture, bool convertToLinear = false) {
+            Texture = texture;
+            ConvertToLinear = convertToLinear;
+        }
+
+        [IgnoreShaderMember]
+        public ID3D12Resource Texture { get; set; }
+
+        [IgnoreShaderMember]
+        public bool ConvertToLinear { get; set; }
+
+        [ShaderMember]
+        public readonly SamplerState Sampler;
+
+        [ShaderMember]
+        public Texture2D ColorTexture { get; private set; }
+
+        [Shader("vertex")]
+        [ShaderMethod]
+        public PSTVInput VSMain([PositionSemantic] Vector4 position, [TextureCoordinateSemantic] Vector2 uv) {
+            PSTVInput result;
+            result.Position = position;
+            result.UV = uv;
+            return result;
+        }
+
+        [Shader("pixel")]
+        [ShaderMethod]
+        [return: SystemTargetSemantic]
+        public Vector4 PSMain(PSTVInput input) {
+            return ColorTexture.Sample(Sampler, input.UV);
+        }
+
+        public void Accept(ShaderGeneratorContext context) {
+            context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
         }
 
     }
@@ -693,6 +860,13 @@ namespace D3D12HelloWorld {
         public Vector4 Colour;
         //[SystemInstanceIdSemantic]
         //public uint InstanceId;
+    }
+
+    public struct PSTVInput {
+        [SystemPositionSemantic]
+        public Vector4 Position;
+        [TextureCoordinateSemantic(0)]
+        public Vector2 UV;
     }
 
     public static class StringExtensions {

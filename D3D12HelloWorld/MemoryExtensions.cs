@@ -1,24 +1,23 @@
 ﻿using System;
 using Vortice.Direct3D12;
 
-namespace D3D12HelloWorld
-{
-    static class MemoryExtensions
-    {
-        public static unsafe void CopyTo<T>(this Span<T> source, IntPtr destination) where T : unmanaged
-        {
+namespace D3D12HelloWorld {
+    static class MemoryExtensions {
+        public static unsafe void CopyTo<T>(this Span<T> source, IntPtr destination) where T : unmanaged {
             source.CopyTo(new Span<T>(destination.ToPointer(), source.Length));
         }
 
-        public static ulong GetRequiredIntermediateSize(this ID3D12Device device, ID3D12Resource destinationResource, int firstSubresource, int numSubresources)
-        {
+        public unsafe static void CopyTo<T>(this IntPtr source, Span<T> destination) where T : unmanaged {
+            new Span<T>(source.ToPointer(), destination.Length).CopyTo(destination);
+        }
+
+        public static ulong GetRequiredIntermediateSize(this ID3D12Device device, ID3D12Resource destinationResource, int firstSubresource, int numSubresources) {
             device.GetCopyableFootprints(destinationResource.Description, firstSubresource, numSubresources, 0, null, null, null, out ulong requiredSize);
             return requiredSize;
         }
 
         public static ulong UpdateSubresource(this ID3D12Device device, ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
-                                              ulong intermediateOffset, int firstSubresource, ReadOnlySpan<byte> data)
-        {
+                                              ulong intermediateOffset, int firstSubresource, ReadOnlySpan<byte> data) {
             int numSubresource = 1;
             var layouts = new PlacedSubresourceFootPrint[numSubresource];
             var numRows = new int[numSubresource];
@@ -37,14 +36,11 @@ namespace D3D12HelloWorld
 
             intermediateResource.SetData(data);
 
-            if (destDesc.Dimension == ResourceDimension.Buffer)
-            {
+            if (destDesc.Dimension == ResourceDimension.Buffer) {
                 cmdList.CopyBufferRegion(destResource, 0, intermediateResource, layouts[0].Offset, (ulong)layouts[0].Footprint.Width);
             }
-            else
-            {
-                for (int idx = 0; idx < numSubresource; idx++)
-                {
+            else {
+                for (int idx = 0; idx < numSubresource; idx++) {
                     var dest = new TextureCopyLocation(destResource, idx + firstSubresource);
                     var src = new TextureCopyLocation(intermediateResource, layouts[idx]);
                     cmdList.CopyTextureRegion(dest, 0, 0, 0, src, null);
@@ -74,8 +70,7 @@ namespace D3D12HelloWorld
         /// https://github.com/Mayhem50/SharpMiniEngine/blob/b955ec87786278af6bc6281ea84b5ce968a3ab21/Assemblies/Core/DirectX12.cs
         /// </summary>
         public static ulong UpdateSubResources(this ID3D12Device device, ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
-                                               ulong intermediateOffset, int firstSubresource, SubresourceInfo[] data)
-        {
+                                               ulong intermediateOffset, int firstSubresource, SubresourceInfo[] data) {
             int numSubresource = data.Length;
             var layouts = new PlacedSubresourceFootPrint[numSubresource];
             var numRows = new int[numSubresource];
@@ -88,8 +83,7 @@ namespace D3D12HelloWorld
 
         private static ulong UpdateSubResources(ID3D12GraphicsCommandList cmdList, ID3D12Resource destResource, ID3D12Resource intermediateResource,
                                                 int firstSubresource, int numSubresource, ulong requiredSize, PlacedSubresourceFootPrint[] layouts,
-                                                ulong[] rowSizesInBytes, SubresourceInfo[] data)
-        {
+                                                ulong[] rowSizesInBytes, SubresourceInfo[] data) {
             var intermediateDesc = intermediateResource.Description;
             var destDesc = destResource.Description;
             var dataPtr = System.Runtime.InteropServices.Marshal.UnsafeAddrOfPinnedArrayElement(data, 0);
@@ -99,8 +93,7 @@ namespace D3D12HelloWorld
                 || requiredSize == 0
                 || (destDesc.Dimension == ResourceDimension.Buffer
                     && firstSubresource != 0
-                    || numSubresource != 1))
-            {
+                    || numSubresource != 1)) {
                 return 0;
             }
 
@@ -110,20 +103,16 @@ namespace D3D12HelloWorld
                 }
             }
 
-            for (int idx = 0; idx < numSubresource; idx++)
-            {
+            for (int idx = 0; idx < numSubresource; idx++) {
                 if (rowSizesInBytes[idx] == 0) { return 0; }
                 intermediateResource.WriteToSubresource(idx, null, new IntPtr((long)data[idx].Offset), data[idx].RowPitch, data[idx].DepthPitch);
             }
 
-            if (destDesc.Dimension == ResourceDimension.Buffer)
-            {
+            if (destDesc.Dimension == ResourceDimension.Buffer) {
                 cmdList.CopyBufferRegion(destResource, 0, intermediateResource, layouts[0].Offset, (ulong)layouts[0].Footprint.Width);
             }
-            else
-            {
-                for (int idx = 0; idx < numSubresource; idx++)
-                {
+            else {
+                for (int idx = 0; idx < numSubresource; idx++) {
                     var dest = new TextureCopyLocation(destResource, idx + firstSubresource);
                     var src = new TextureCopyLocation(intermediateResource, layouts[idx]);
                     cmdList.CopyTextureRegion(dest, 0, 0, 0, src, null);
