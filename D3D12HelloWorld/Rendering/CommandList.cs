@@ -76,9 +76,9 @@ namespace D3D12HelloWorld.Rendering {
         }
 
         public void SetGraphicsRootDescriptorTable(int rootParameterIndex, DescriptorSet descriptorSet) {
-            DescriptorAllocator descriptorAllocator = (descriptorSet.DescriptorHeapType == DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView)
-                                                    ? mShaderResourceViewDescriptorHeap
-                                                    : mSamplerDescriptorHeap;
+            DescriptorAllocator? descriptorAllocator = (descriptorSet.DescriptorHeapType == DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView)
+                                                     ? mShaderResourceViewDescriptorHeap
+                                                     : mSamplerDescriptorHeap;
             if (descriptorAllocator == null) {
                 throw new InvalidOperationException();
             }

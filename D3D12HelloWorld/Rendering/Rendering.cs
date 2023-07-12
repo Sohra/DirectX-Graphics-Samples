@@ -16,7 +16,7 @@ namespace D3D12HelloWorld.Rendering {
         public Texture2D(ShaderResourceView shaderResourceView) : base(shaderResourceView) {
         }
 
-        public T Sample(Sampler sampler, Vector2 textureCoordinate) => throw new NotImplementedException();
+        public T Sample(Sampler sampler, Vector2 textureCoordinate) => throw new NotImplementedException("This is intentionally not implemented.");
     }
 
     [ShaderType("Texture2D")]
@@ -36,13 +36,16 @@ namespace D3D12HelloWorld.Rendering {
         public int CurrentDescriptorCount { get; private set; }
         //public int DescriptorCapacity { get; private set; }
         public int DescriptorHandleIncrementSize { get; }
-        public DescriptorHeapFlags Flags { get; }
+        //public DescriptorHeapFlags Flags => mDescription.Flags;
         internal ID3D12DescriptorHeap DescriptorHeap { get; }
 
         public DescriptorAllocator(ID3D12Device device, DescriptorHeapType descriptorHeapType, int descriptorCount = DescriptorsPerHeap, DescriptorHeapFlags descriptorHeapFlags = DescriptorHeapFlags.None) {
             if (descriptorCount < 1 || descriptorCount > DescriptorsPerHeap) {
                 throw new ArgumentOutOfRangeException(nameof(descriptorCount), $"Descriptor count must be between 1 and {DescriptorsPerHeap}.");
             }
+
+            //Type = descriptorHeapType;
+            //Flags = descriptorHeapFlags;
 
             DescriptorHandleIncrementSize = device.GetDescriptorHandleIncrementSize(descriptorHeapType);
             mDescription = new DescriptorHeapDescription(descriptorHeapType, descriptorCount, descriptorHeapFlags);
@@ -67,7 +70,7 @@ namespace D3D12HelloWorld.Rendering {
         }
 
         public GpuDescriptorHandle GetGpuDescriptorHandle(CpuDescriptorHandle descriptor) {
-            if (!Flags.HasFlag(DescriptorHeapFlags.ShaderVisible)) {
+            if (!mDescription.Flags.HasFlag(DescriptorHeapFlags.ShaderVisible)) {
                 throw new InvalidOperationException();
             }
 

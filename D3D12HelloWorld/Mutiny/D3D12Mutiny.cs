@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -63,6 +64,9 @@ namespace D3D12HelloWorld.Mutiny
         int mRtvDescriptorSize;
 
         // App resources.
+        GraphicsResource mDirectionalLightGroupBuffer;
+        GraphicsResource mGlobalBuffer;
+        GraphicsResource mViewProjectionTransformBuffer;
         Sampler mDefaultSampler;
         ID3D12Resource mIndexBuffer;
         ID3D12Resource mVertexBuffer;
@@ -99,7 +103,7 @@ namespace D3D12HelloWorld.Mutiny
             OnInit();
 
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
-            this.FormClosing += (object sender, FormClosingEventArgs e) => OnDestroy();
+            this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
 
         private void HandleCompositionTarget_Rendering(object sender, EventArgs e) {
@@ -113,6 +117,13 @@ namespace D3D12HelloWorld.Mutiny
         public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
+
+            //mDirectionalLightGroupBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, sizeof(int) + System.Runtime.CompilerServices.Unsafe.SizeOf<DirectionalLightData>() * MaxLights, ResourceFlags.None, HeapType.Upload);
+            //mGlobalBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, System.Runtime.CompilerServices.Unsafe.SizeOf<GlobalBuffer>(), ResourceFlags.None, HeapType.Upload);
+            //mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, System.Runtime.CompilerServices.Unsafe.SizeOf<StereoViewProjectionTransform>(), ResourceFlags.None, HeapType.Upload);
+            mDirectionalLightGroupBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
+            mGlobalBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
+            mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
             mDefaultSampler = new Sampler(mDevice);
         }
 
@@ -178,9 +189,9 @@ namespace D3D12HelloWorld.Mutiny
             //mFactory.Dispose();
 
 #if DEBUG
-            if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIDebug1 dxgiDebug).Success) {
+            if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIDebug1? dxgiDebug).Success) {
                 dxgiDebug!.ReportLiveObjects(DXGI.DebugAll, Vortice.DXGI.Debug.ReportLiveObjectFlags.Summary | Vortice.DXGI.Debug.ReportLiveObjectFlags.IgnoreInternal);
-                dxgiDebug!.Dispose();
+                dxgiDebug.Dispose();
             }
 #endif
         }
@@ -195,7 +206,7 @@ namespace D3D12HelloWorld.Mutiny
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             // NOTE: Enabling the debug layer after device creation will invalidate the active device.
             {
-                if (D3D12.D3D12GetDebugInterface(out Vortice.Direct3D12.Debug.ID3D12Debug debugController).Success) {
+                if (D3D12.D3D12GetDebugInterface(out Vortice.Direct3D12.Debug.ID3D12Debug? debugController).Success) {
                     //Doesn't implement this interface....
                     //ID3D12InfoQueue debug = debugController.QueryInterface<ID3D12InfoQueue>();
                     //if (debug != null) {
@@ -205,7 +216,7 @@ namespace D3D12HelloWorld.Mutiny
 
                     //ID3D12Debug1 debug = debugController.QueryInterface<ID3D12Debug1>();
                     //debug.EnableDebugLayer();
-                    debugController.EnableDebugLayer();
+                    debugController!.EnableDebugLayer();
                     debugController.Dispose();
 
                     // Enable additional debug layers.
@@ -215,9 +226,9 @@ namespace D3D12HelloWorld.Mutiny
                     System.Diagnostics.Debug.WriteLine("WARNING: Direct3D Debug Device is not available");
                 }
 
-                if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIInfoQueue dxgiInfoQueue).Success) {
+                if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIInfoQueue? dxgiInfoQueue).Success) {
                     dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Error, true);
-                    dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Corruption, true);
+                    dxgiInfoQueue.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Corruption, true);
 
                     var hide = new int[] {
                         80 /* IDXGISwapChain::GetContainingOutput: The swapchain's adapter does not control the output on which the swapchain's window resides. */,
@@ -227,23 +238,23 @@ namespace D3D12HelloWorld.Mutiny
                             Ids = hide
                         }
                     };
-                    dxgiInfoQueue!.AddStorageFilterEntries(DXGI.DebugDxgi, filter);
+                    dxgiInfoQueue.AddStorageFilterEntries(DXGI.DebugDxgi, filter);
                     dxgiInfoQueue.Dispose();
                 }
             }
 #endif
 
-            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4 factory);
+            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4? factory).CheckError();
 
             if (mUseWarpDevice) {
-                Result warpResult = factory.EnumWarpAdapter(out IDXGIAdapter warpAdapter);
+                Result warpResult = factory!.EnumWarpAdapter(out IDXGIAdapter? warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
                 mDevice = D3D12.D3D12CreateDevice<ID3D12Device>(warpAdapter, Vortice.Direct3D.FeatureLevel.Level_11_0);
             }
             else {
-                IDXGIAdapter1 hardwareAdapter = null;
+                IDXGIAdapter1? hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
                 //GetHardwareAdapter(factory.Get(), &hardwareAdapter);  
@@ -296,7 +307,7 @@ namespace D3D12HelloWorld.Mutiny
             };
 
             // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
+            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             //factory.MakeWindowAssociation(base.Handle, WindowAssociationFlags.IgnoreAltEnter);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
@@ -414,7 +425,7 @@ namespace D3D12HelloWorld.Mutiny
             {
                 var modelLoader = XModelLoader.Create3(mGraphicsDevice, @"..\..\..\Mutiny\Models\cannon_boss.X");
                 (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model) firstMesh
-                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny\Textures", false)).Result.First();
+                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
                 mIndexBuffer = firstMesh.IndexBuffer;
                 mVertexBuffer = firstMesh.VertexBuffer;
                 mModel = firstMesh.Model;
@@ -436,7 +447,13 @@ namespace D3D12HelloWorld.Mutiny
             }
         }
 
-        void PopulateCommandList() {
+        void PopulateCommandList()
+        {
+            var descriptorHeaps = new[] { mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator, mGraphicsDevice.ShaderVisibleSamplerAllocator };
+            var srvDescriptorHeap = descriptorHeaps.SingleOrDefault(d => d.DescriptorHeap.Description.Type == DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+            var samplerDescriptorHeap = descriptorHeaps.SingleOrDefault(d => d.DescriptorHeap.Description.Type == DescriptorHeapType.Sampler);
+
+
             // Command list allocators can only be reset when the associated 
             // command lists have finished execution on the GPU; apps should use 
             // fences to determine GPU execution progress.
@@ -451,78 +468,114 @@ namespace D3D12HelloWorld.Mutiny
             mCommandList.Reset(commandAllocator, mPipelineState);
 
             // Set necessary state.
-            mCommandList.SetGraphicsRootSignature(mRootSignature);
-            mCommandList.RSSetViewports(mViewport);
-            mCommandList.RSSetScissorRects(mScissorRect);
+            mCommandList.SetDescriptorHeaps(descriptorHeaps.Length, descriptorHeaps.Select(d => d.DescriptorHeap).ToArray());  //Performed by CommandList.Reset
+            //mCommandList.SetGraphicsRootSignature(mRootSignature);  //Not set by CommandList, but bny RenderSystem when looping through the meshes, after setting index and vertext buggers, before the primitive topology
+            mCommandList.RSSetViewports(mViewport);  //Set during CommandList.ClearState
+            mCommandList.RSSetScissorRects(mScissorRect);  //Set during CommandList.ClearState
 
             // Indicate that the back buffer will be used as a render target.
             var backBufferRenderTarget = mRenderTargets[mFrameIndex];
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.Present, ResourceStates.RenderTarget));
 
             CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart() + mFrameIndex * mRtvDescriptorSize;
-            mCommandList.OMSetRenderTargets(rtvHandle, null);
+            mCommandList.OMSetRenderTargets(rtvHandle, null);  //Set during CommandList.ClearState
 
             // Record commands.
             var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
-            mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
+            mCommandList.ClearRenderTargetView(rtvHandle, clearColor);  //MyGame.BeginDraw
 
-            int renderTargetCount = 1;
-            mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-            foreach (var mesh in mModel.Meshes) {
-                var material = mModel.Materials[mesh.MaterialIndex];
+            var meshCount = mModel.Meshes.Count();
+            var worldMatrixBuffers = new GraphicsResource[meshCount];
+            for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)
+            {
+                worldMatrixBuffers[meshIndex] = GraphicsResource.CreateBuffer(mGraphicsDevice, 1 * Unsafe.SizeOf<Matrix4x4>(), ResourceFlags.None, HeapType.Upload);
 
-                //mCommandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
-                mCommandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews);
-
-                //CommandList.SetPipelineState(material.PipelineState) performs:
-                if (material.PipelineState.IsCompute) {
-                    mCommandList.SetComputeRootSignature(material.PipelineState.RootSignature);
-                }
-                else {
-                    mCommandList.SetGraphicsRootSignature(material.PipelineState.RootSignature);
-                }
-                mCommandList.SetPipelineState(material.PipelineState.NativePipelineState);
-
-                int rootParameterIndex = 0;
-                mCommandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
-                rootParameterIndex++;
-                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, GlobalBuffer.DefaultConstantBufferView);
-                rootParameterIndex++;
-                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, ViewProjectionTransformBuffer.DefaultConstantBufferView);
-                rootParameterIndex++;
-                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[i].DefaultConstantBufferView);
-                rootParameterIndex++;
-                //mCommandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, DirectionalLightGroupBuffer.DefaultConstantBufferView);
-
-                //mCommandList.SetGraphicsRootSampler(rootParameterIndex++, DefaultSampler.CpuDescriptorHandle, 1);
-                mGraphicsDevice.CommandList.SetGraphicsRootSampler
-                
-                var baseDescriptor = mDefaultSampler.CpuDescriptorHandle;
-                var descriptorCount = 1;
-
-                long gpuDescriptor = CopyDescriptors(descriptorAllocator, baseDescriptor, descriptorCount);
-                
-                CpuDescriptorHandle intPtr = descriptorAllocator.Allocate(descriptorCount);
-                mDevice.NativeDevice.CopyDescriptorsSimple(descriptorCount, intPtr, baseDescriptor, descriptorAllocator.DescriptorHeap.Description.Type);
-                GpuDescriptorHandle gpuDescriptor = descriptorAllocator.GetGpuDescriptorHandle(intPtr);
-
-                mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, gpuDescriptor);
+                //If using bundles, this would be done after recording the commands
+                worldMatrixBuffers[meshIndex].SetData(mModel.Meshes[meshIndex].WorldMatrix);
             }
 
-            //mCommandList.SetGraphicsRootConstantBufferView(0, ViewProjectionTransformBuffer);
-            //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
-            //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
-            //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
-            //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so rightshift by 3 (or divide by 8)
-            //mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
-            //Blank
-            //mCommandList.DrawInstanced(3, mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes / 3, 0, 0);
-            mCommandList.DrawInstanced(mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes, 1, 0, 0);
+            RecordCommandList(mModel, mCommandList, srvDescriptorHeap, samplerDescriptorHeap, worldMatrixBuffers, 1);
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.RenderTarget, ResourceStates.Present));
 
             mCommandList.Close();
+        }
+
+        private void RecordCommandList(Model model, ID3D12GraphicsCommandList commandList, DescriptorAllocator? srvDescriptorHeap, DescriptorAllocator? samplerDescriptorHeap, GraphicsResource[] worldMatrixBuffers, int instanceCount)
+        {
+            int renderTargetCount = 1; //We don't do stereo so this is always 1
+            instanceCount *= renderTargetCount;
+
+            for (int meshIndex = 0; meshIndex < model.Meshes.Count(); meshIndex++)
+            {
+                var mesh = model.Meshes[meshIndex];
+                var material = model.Materials[mesh.MaterialIndex];
+
+                //commandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
+                commandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews);
+
+                //CommandList.SetPipelineState(material.PipelineState) performs:
+                if (material.PipelineState!.IsCompute)
+                {
+                    commandList.SetComputeRootSignature(material.PipelineState.RootSignature);
+                }
+                else
+                {
+                    commandList.SetGraphicsRootSignature(material.PipelineState.RootSignature);
+                }
+                commandList.SetPipelineState(material.PipelineState.NativePipelineState);
+
+                commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+
+                int rootParameterIndex = 0;
+                commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
+
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
+                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                CpuDescriptorHandle destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                GpuDescriptorHandle gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
+                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mWorldMatrixBuffer.DefaultConstantBufferView);
+                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
+                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                //commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
+                //long gpuDescriptor = CopyDescriptors(samplerDescriptorHeap, mDefaultSampler.CpuDescriptorHandle, 1);
+                destinationDescriptor = samplerDescriptorHeap!.Allocate(1);
+                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDefaultSampler.CpuDescriptorHandle, samplerDescriptorHeap.DescriptorHeap.Description.Type);
+                gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
+                //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
+                //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
+                //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so rightshift by 3 (or divide by 8)
+                //commandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
+                //Blank
+                //commandList.DrawInstanced(instanceCount * 3, mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes / (instanceCount * 3), 0, 0);
+                var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
+                commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount, 0, 0);
+            }
         }
 
         // Wait for pending GPU work to complete.

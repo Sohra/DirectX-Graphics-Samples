@@ -10,6 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using Vortice.Direct3D12;
+using Vortice.DXGI;
 using static D3D12HelloWorld.StringExtensions;
 using Format = Vortice.DXGI.Format;
 
@@ -489,8 +490,8 @@ namespace D3D12HelloWorld {
                                 _ => throw new NotSupportedException($"Cannot load {textureFile.Extension} images.  Only DDS or JPG supported for use as textures."),
                             };
 
-                            ID3D12Resource diffuseTexture = textureBuilder.Create2dTexture(stream);
-
+                            Texture diffuseTexture = textureBuilder.Create2dTexture(stream);
+                            
                             shader = new TextureShader(diffuseTexture, true);
                         }
                     }
@@ -507,7 +508,7 @@ namespace D3D12HelloWorld {
                 context.Visit(shader);
 
                 //Describe and create the graphics pipeline state object (PSO)
-                //ID3D12PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(ColouredVertex.InputElements);
+                //PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(ColouredVertex.InputElements);
                 PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(FlatShadedVertex.InputElements);
                 //ID3D12PipelineState pipelineState = null;
 
@@ -539,25 +540,13 @@ namespace D3D12HelloWorld {
                 mDevice = device ?? throw new ArgumentNullException(nameof(device));
             }
 
-            public ID3D12Resource Create2dTexture(FileStream stream) {
+            public Texture Create2dTexture(FileStream stream) {
                 (Format format, uint width, uint height, byte[] data) = ReadImageStream(stream);
                 var textureDesc = ResourceDescription.Texture2D(format, width, height, 1, 1, 1, 0, ResourceFlags.None);
 
-                var texture2d = mDevice.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
-                                                                             textureDesc, ResourceStates.CopyDest, null);
-
-                ulong uploadBufferSize = texture2d.GetRequiredIntermediateSize(0, 1);
-                ID3D12Resource textureUploadHeap
-                    = mDevice.NativeDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-                                                                   ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
-
-                // Copy data to the intermediate upload heap and then schedule a copy from the upload heap to the Texture2D.
-                using var copyCommandList = new CommandList(mDevice, CommandListType.Copy);
-                copyCommandList.UpdateSubresource(mDevice.NativeDevice, texture2d, textureUploadHeap, 0, 0, data);
-
-                //Try using copy queue instead of BarrierTransition from CopyDest to PixelShaderResource
-                mDevice.CopyCommandQueue.ExecuteCommandLists(copyCommandList.Close());
-                return texture2d;
+                var texture = new Texture(mDevice, textureDesc, HeapType.Default);
+                texture.SetData(data.AsSpan());
+                return texture;
             }
 
             protected abstract (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream);
@@ -809,13 +798,13 @@ namespace D3D12HelloWorld {
     /// Based on https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/shaders.hlsl
     /// </summary>
     class TextureShader : IShader {
-        public TextureShader(ID3D12Resource texture, bool convertToLinear = false) {
+        public TextureShader(Texture texture, bool convertToLinear = false) {
             Texture = texture;
             ConvertToLinear = convertToLinear;
         }
 
         [IgnoreShaderMember]
-        public ID3D12Resource Texture { get; set; }
+        public Texture Texture { get; set; }
 
         [IgnoreShaderMember]
         public bool ConvertToLinear { get; set; }
@@ -843,14 +832,28 @@ namespace D3D12HelloWorld {
         }
 
         public void Accept(ShaderGeneratorContext context) {
+            if (Texture is null)
+                throw new InvalidOperationException($"Cannot use this shader without first constructing with or assigning a {nameof(Texture)}");
+
+            //Based on MaterialShader.Accept, which subclassed RasterizationShaderBase
             context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
+
+            ColorTexture = new Texture2D(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
+            context.ShaderResourceViews.Add(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
         }
 
+        static Format ToSrgb(Format format) => format switch
+        {
+            Format.R8G8B8A8_UNorm => Format.R8G8B8A8_UNorm_SRgb,
+            Format.B8G8R8A8_UNorm => Format.B8G8R8A8_UNorm_SRgb,
+            Format.B8G8R8X8_UNorm => Format.B8G8R8X8_UNorm_SRgb,
+            _ => format
+        };
     }
 
     public struct PSCVInput {

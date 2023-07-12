@@ -168,7 +168,7 @@ namespace D3D12HelloWorld.Rendering {
 
                 using var copyCommandList = new CommandList(GraphicsDevice, CommandListType.Copy);
 
-                copyCommandList.CopyResource(textureUploadBuffer, this);
+                copyCommandList.CopyResource(this, textureUploadBuffer);
                 copyCommandList.Flush();
             }
         }
