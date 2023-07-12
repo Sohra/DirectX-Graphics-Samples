@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using Vortice.Direct3D;
 using Vortice.Direct3D12;
 
 namespace D3D12HelloWorld.Rendering {
@@ -43,6 +44,14 @@ namespace D3D12HelloWorld.Rendering {
         public void Dispose() {
             mCommandList.Dispose();
             mCommandAllocator.Dispose();
+        }
+
+        public void DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation = 0, int baseVertexLocation = 0, int startInstanceLocation = 0) {
+            mCommandList.DrawIndexedInstanced(indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation);
+        }
+
+        public void DrawInstanced(int vertexCountPerInstance, int instanceCount, int startVertexLocation = 0, int startInstanceLocation = 0) {
+            mCommandList.DrawInstanced(vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation);
         }
 
         public void Flush() {
@@ -89,6 +98,25 @@ namespace D3D12HelloWorld.Rendering {
         private void SetGraphicsRootDescriptorTable(int rootParameterIndex, DescriptorAllocator descriptorAllocator, CpuDescriptorHandle baseDescriptor, int descriptorCount) {
             GpuDescriptorHandle value = CopyDescriptors(descriptorAllocator, baseDescriptor, descriptorCount);
             mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, value);
+        }
+
+        public void SetPipelineState(PipelineState pipelineState) {
+            if (pipelineState.IsCompute) {
+                mCommandList.SetComputeRootSignature(pipelineState.RootSignature);
+            }
+            else {
+                mCommandList.SetGraphicsRootSignature(pipelineState.RootSignature);
+            }
+
+            mCommandList.SetPipelineState(pipelineState.NativePipelineState);
+        }
+
+        public void SetPrimitiveTopology(PrimitiveTopology primitiveTopology) {
+            mCommandList.IASetPrimitiveTopology(primitiveTopology);
+        }
+
+        public void SetVertexBuffers(int startSlot, params VertexBufferView[] vertexBufferViews) {
+            mCommandList.IASetVertexBuffers(startSlot, vertexBufferViews);
         }
 
         public ulong UpdateSubresource(ID3D12Device device, ID3D12Resource destResource, ID3D12Resource intermediateResource,

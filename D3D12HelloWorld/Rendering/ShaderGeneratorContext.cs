@@ -10,7 +10,7 @@ namespace D3D12HelloWorld.Rendering {
         readonly GraphicsDevice mDevice;
         readonly ShaderGeneratorSettings mSettings;
 
-        public IShader Shader { get; private set; }
+        public IShader? Shader { get; private set; }
 
         public int ConstantBufferViewRegisterCount { get; set; }
 
@@ -147,7 +147,7 @@ namespace D3D12HelloWorld.Rendering {
             }
         }
 
-        public ShaderStage GetShaderStage(string shader) {
+        static ShaderStage GetShaderStage(string shader) {
             ShaderStage result = shader switch {
                 "vertex" => ShaderStage.VertexShader,
                 "pixel" => ShaderStage.PixelShader,

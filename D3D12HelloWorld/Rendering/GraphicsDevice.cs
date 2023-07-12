@@ -13,7 +13,7 @@ namespace D3D12HelloWorld.Rendering {
             CopyCommandQueue = new CommandQueue(device, CommandListType.Copy, "Copy Queue");
 
             DepthStencilViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.DepthStencilView, 1);
-            ShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+            ShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096);
             SamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256);
             ShaderVisibleShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096, DescriptorHeapFlags.ShaderVisible);
             ShaderVisibleSamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256, DescriptorHeapFlags.ShaderVisible);

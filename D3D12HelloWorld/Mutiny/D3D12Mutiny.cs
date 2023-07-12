@@ -21,27 +21,6 @@ namespace D3D12HelloWorld.Mutiny
     public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
 
-        readonly struct Vertex {
-            public static readonly unsafe int SizeInBytes = sizeof(Vertex);
-            /// <summary>
-            /// Defines the vertex input layout.
-            /// NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
-            ///       compiled Vertex Shader's Input parameters - PositionSemanticAttribute and ColorSemanticAttribute in this case per the VSInput struct
-            /// </summary>
-            public static readonly InputElementDescription[] InputElements = new[] {
-                new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
-                new InputElementDescription("Color", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
-            };
-
-            public Vertex(in Vector3 position, in Color4 colour) {
-                Position = position;
-                Colour = colour;
-            }
-
-            public readonly Vector3 Position;
-            public readonly Color4 Colour;
-        };
-
         //Viewport dimensions
         float mAspectRatio;
 
@@ -356,17 +335,16 @@ namespace D3D12HelloWorld.Mutiny
 
             // Create the pipeline state, which includes compiling and loading shaders.
             {
-                //var shader = new HelloTriangle.Shaders();
-                //var shaderGenerator = new ShaderGenerator(shader);
-                //ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                //ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                //ReadOnlyMemory<byte> pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
-                ReadOnlyMemory<byte> vertexShader = CompileBytecode(DxcShaderStage.Vertex, "HelloTriangleShaders.hlsl", "VSMain");
-                ReadOnlyMemory<byte> pixelShader = CompileBytecode(DxcShaderStage.Pixel, "HelloTriangleShaders.hlsl", "PSMain");
+                // Compile .NET to HLSL
+                var shader = new HelloTriangle.Shaders();
+                var shaderGenerator = new DirectX12GameEngine.Shaders.ShaderGenerator(shader);
+                DirectX12GameEngine.Shaders.ShaderGeneratorResult result = shaderGenerator.GenerateShader();
+                ReadOnlyMemory<byte> vertexShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
+                ReadOnlyMemory<byte> pixelShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
 
                 // Describe and create the graphics pipeline state object (PSO).
                 var psoDesc = new GraphicsPipelineStateDescription {
-                    InputLayout = new InputLayoutDescription(Vertex.InputElements),
+                    InputLayout = new InputLayoutDescription(FlatShadedVertex.InputElements),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
                     PixelShader = pixelShader,
@@ -374,11 +352,11 @@ namespace D3D12HelloWorld.Mutiny
                     //BlendState = BlendDescription.AlphaBlend,  //This is what DX12GE uses
                     //BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
                     BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
-                    //DepthStencilState = DepthStencilDescription.None,  //Default value is DepthStencilDescription.Default
+                    DepthStencilState = DepthStencilDescription.None,  //Default value is DepthStencilDescription.Default
                     SampleMask = uint.MaxValue, //This is the default value anyway...
                     PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                     RenderTargetFormats = new[] { Format.R8G8B8A8_UNorm, },
-                    SampleDescription = SampleDescription.Default,  //This is the default value anyway...
+                    SampleDescription = SampleDescription.Default,
                 };
                 mPipelineState = mDevice.CreateGraphicsPipelineState(psoDesc);
             }
@@ -394,32 +372,6 @@ namespace D3D12HelloWorld.Mutiny
             //Rather than just a command list, use the GraphicsDevice abstraction which creates both the CommandList
             mGraphicsDevice = new GraphicsDevice(mDevice);
 
-            //// Create the vertex buffer.
-            //{
-            //    // Define the geometry for a triangle.
-            //    var triangleVertices = new[] {
-            //        new Vertex(new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
-            //        new Vertex(new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
-            //        new Vertex(new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
-            //    };
-
-            //    int vertexBufferSize = triangleVertices.Length * Vertex.SizeInBytes;
-
-            //    // Note: using upload heaps to transfer static data like vert buffers is not 
-            //    // recommended. Every time the GPU needs it, the upload heap will be marshalled 
-            //    // over. Please read up on Default Heap usage. An upload heap is used here for 
-            //    // code simplicity and because there are very few verts to actually transfer.
-            //    mVertexBuffer = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-            //                                                    ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
-
-            //    // Copy the triangle data to the vertex buffer.
-            //    mVertexBuffer.SetData(triangleVertices);
-
-            //    // Initialize the vertex buffer view.
-            //    mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
-            //    mVertexBufferView.StrideInBytes = Vertex.SizeInBytes;
-            //    mVertexBufferView.SizeInBytes = vertexBufferSize;
-            //}
 
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
@@ -491,10 +443,12 @@ namespace D3D12HelloWorld.Mutiny
                 worldMatrixBuffers[meshIndex] = GraphicsResource.CreateBuffer(mGraphicsDevice, 1 * Unsafe.SizeOf<Matrix4x4>(), ResourceFlags.None, HeapType.Upload);
 
                 //If using bundles, this would be done after recording the commands
-                worldMatrixBuffers[meshIndex].SetData(mModel.Meshes[meshIndex].WorldMatrix);
+                worldMatrixBuffers[meshIndex].SetData(mModel.Meshes[meshIndex].WorldMatrix, 0);
             }
 
             RecordCommandList(mModel, mCommandList, srvDescriptorHeap, samplerDescriptorHeap, worldMatrixBuffers, 1);
+            //var bundleCommandList = new CommandList(mGraphicsDevice, CommandListType.Bundle);
+            //RecordCommandList(mModel, bundleCommandList, worldMatrixBuffers, 1);
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.RenderTarget, ResourceStates.Present));
@@ -513,7 +467,7 @@ namespace D3D12HelloWorld.Mutiny
                 var material = model.Materials[mesh.MaterialIndex];
 
                 //commandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
-                commandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews);
+                commandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
 
                 //CommandList.SetPipelineState(material.PipelineState) performs:
                 if (material.PipelineState!.IsCompute)
@@ -566,15 +520,40 @@ namespace D3D12HelloWorld.Mutiny
                 gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
                 commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
 
-                //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
-                //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
-                //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
-                //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so rightshift by 3 (or divide by 8)
-                //commandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
-                //Blank
-                //commandList.DrawInstanced(instanceCount * 3, mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes / (instanceCount * 3), 0, 0);
+                //commandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3), instanceCount, 0, 0, 0);
                 var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
                 commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount, 0, 0);
+            }
+        }
+
+        private void RecordCommandList(Model model, CommandList commandList, GraphicsResource[] worldMatrixBuffers, int instanceCount)
+        {
+            int renderTargetCount = 1; //We don't do stereo so this is always 1
+            instanceCount *= renderTargetCount;
+
+            for (int meshIndex = 0; meshIndex < model.Meshes.Count(); meshIndex++)
+            {
+                var mesh = model.Meshes[meshIndex];
+                var material = model.Materials[mesh.MaterialIndex];
+
+                //commandList.SetIndexBuffer(mesh.MeshDraw.IndexBufferView);
+                commandList.SetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
+
+                commandList.SetPipelineState(material.PipelineState!);
+                commandList.SetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+
+                int rootParameterIndex = 0;
+                commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
+
+                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
+                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
+                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[meshIndex].DefaultConstantBufferView);
+                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
+                commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
+
+                //commandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3), instanceCount, 0, 0, 0);
+                var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
+                commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount);
             }
         }
 
