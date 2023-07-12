@@ -1,8 +1,10 @@
-﻿using DirectX12GameEngine.Shaders;
+﻿using D3D12HelloWorld.Rendering;
+using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
+using System.IO;
+using System.Linq;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -54,6 +56,8 @@ namespace D3D12HelloWorld.HelloTexture {
         // App resources.
         ID3D12Resource mVertexBuffer;
         VertexBufferView mVertexBufferView;
+        ID3D12Resource mIndexBuffer;
+        IndexBufferView? mIndexBufferView;
         ID3D12Resource mTexture;
 
         // Synchronization objects.
@@ -87,10 +91,10 @@ namespace D3D12HelloWorld.HelloTexture {
             OnInit();
 
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
-            this.FormClosing += (object sender, FormClosingEventArgs e) => OnDestroy();
+            this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
 
-        private void HandleCompositionTarget_Rendering(object sender, EventArgs e)
+        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e)
         {
             lock (mTickLock)
             {
@@ -153,11 +157,11 @@ namespace D3D12HelloWorld.HelloTexture {
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             // NOTE: Enabling the debug layer after device creation will invalidate the active device.
             {
-                Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug debugController);
+                Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug? debugController);
 
                 if (debugResult.Success)
                 {
-                    ID3D12Debug1 debug = debugController.QueryInterface<ID3D12Debug1>();
+                    ID3D12Debug1 debug = debugController!.QueryInterface<ID3D12Debug1>();
 
                     debug.EnableDebugLayer();
 
@@ -168,11 +172,11 @@ namespace D3D12HelloWorld.HelloTexture {
             }
 #endif
 
-            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4 factory);
+            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4? factory);
 
             if (mUseWarpDevice)
             {
-                Result warpResult = factory.EnumWarpAdapter(out IDXGIAdapter warpAdapter);
+                Result warpResult = factory!.EnumWarpAdapter(out IDXGIAdapter? warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
@@ -180,7 +184,7 @@ namespace D3D12HelloWorld.HelloTexture {
             }
             else
             {
-                IDXGIAdapter1 hardwareAdapter = null;
+                IDXGIAdapter1? hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
                 //GetHardwareAdapter(factory.Get(), &hardwareAdapter);  
@@ -204,7 +208,7 @@ namespace D3D12HelloWorld.HelloTexture {
             };
 
             // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
+            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
@@ -302,58 +306,12 @@ namespace D3D12HelloWorld.HelloTexture {
 
             // Create the pipeline state, which includes compiling and loading shaders.
             {
-                /*//Shader Model 5.x- (FXC Compiler)
-                Result vertexShaderOperation = Vortice.D3DCompiler.Compiler.CompileFromFile("HelloTextureShaders.hlsl", "VSMain", "vs_5_0", out var vertexShaderBlob, out var vertexShaderErrorBlob);
-                Result pixelShaderOperation = Vortice.D3DCompiler.Compiler.CompileFromFile("HelloTextureShaders.hlsl", "PSMain", "ps_5_0", out var pixelShaderBlob, out var pixelShaderErrorBlob);
-                if (vertexShaderOperation.Failure)
-                    throw new COMException($"FXC Compiler Error on Vertex Shader: {vertexShaderErrorBlob.ConvertToString()}", vertexShaderOperation.Code);
-                if (pixelShaderOperation.Failure)
-                    throw new COMException($"FXC Compiler Error on Pixel Shader: {pixelShaderErrorBlob.ConvertToString()}", pixelShaderOperation.Code);
-                var vertexShader = new ShaderBytecode(vertexShaderBlob.GetBytes());
-                var pixelShader = new ShaderBytecode(pixelShaderBlob.GetBytes());//*/
-
-
-                /*//Shader Model 6+ (DXC Compiler)
-                //Compile with DXC, this output.s a C header file with the byte code in a constant specified by /Vn i.e. g_HelloTexture_VS in the below case
-                //& "$([Environment]::GetEnvironmentVariable('ProgramFiles(x86)'))\Windows Kits\10\bin\10.0.19041.0\x86\dxc.exe" /Zi /E"VSMain" /Vn"g_HelloTexture_VS" /Tvs_6_0 /Fh"HelloTextureShaders.hlsl.h" /nologo HelloTextureShaders.hlsl
-                //Alternatively, raw output can be used 
-                //& "$([Environment]::GetEnvironmentVariable('ProgramFiles(x86)'))\Windows Kits\10\bin\10.0.19041.0\x86\dxc.exe" /Zi /E"VSMain" /Tvs_6_0 /Fo"HelloTextureShaders.hlsl.fo" /nologo HelloTextureShaders.hlsl
-                var options = new Vortice.Dxc.DxcCompilerOptions { ShaderModel = Vortice.Dxc.DxcShaderModel.Model6_0, EnableDebugInfo = true, };
-                Vortice.Dxc.IDxcOperationResult vertexShaderOperation = Vortice.Dxc.DxcCompiler.Compile(Vortice.Dxc.DxcShaderStage.VertexShader, "HelloTextureShaders.hlsl", "VSMain", null, options);
-                Vortice.Dxc.IDxcOperationResult pixelShaderOperation = Vortice.Dxc.DxcCompiler.Compile(Vortice.Dxc.DxcShaderStage.PixelShader, "HelloTextureShaders.hlsl", "PSMain", null, options);
-                var status = vertexShaderOperation.GetStatus(); //0x80004005 AKA -2147467259
-                ////Throws COMException: 0xA8F28C30 when debug off
-                // When debug on, vertexShaderOperation.GetErrors().GetBufferSize() = 311, and GetBufferPointer returns a value too (both unlike GetResult()), however using this to create shaderbytecode still throws InvalidProgramException
-                var errors2 = vertexShaderOperation.GetErrors().GetEncoding(out bool unknown2, out uint codePage2);  //False and 0
-                Vortice.Dxc.IDxcBlob vertexShaderResult = vertexShaderOperation.GetResult();
-                //Throws:
-                //System.InvalidProgramException
-                //  HResult = 0x8013153A
-                //  Message = The JIT compiler encountered invalid IL code or an internal limitation.
-                //    Source=Vortice.DirectX
-                //    StackTrace:
-                //   at Vortice.Interop.Read[T](IntPtr source, T[] values)
-                //   at Vortice.Direct3D12.ShaderBytecode..ctor(IntPtr bytecode, PointerSize length)
-                //   at D3D12HelloWorld.MemoryExtensions.AsShaderBytecode(IDxcBlob source) in \HelloTriangle\MemoryExtensions.cs:line 15
-                //   at D3D12HelloWorld.HelloTexture.D3D12HelloTexture.LoadAssets() in \HelloTriangle\HelloTexture\D3D12HelloTexture.cs:line 325
-                //   at D3D12HelloWorld.HelloTexture.D3D12HelloTexture.OnInit() in \HelloTriangle\HelloTexture\D3D12HelloTexture.cs:line 108
-                //   at D3D12HelloWorld.HelloTexture.D3D12HelloTexture..ctor(UInt32 width, UInt32 height, String name) in \HelloTriangle\HelloTexture\D3D12HelloTexture.cs:line 89
-                //   at D3D12HelloWorld.Program.Main() in \HelloTriangle\Program.cs:line 19
-                var vertexShader = vertexShaderResult.AsMemory();
-
-                status = pixelShaderOperation.GetStatus();
-                var errors = pixelShaderOperation.GetErrors().GetEncoding(out bool unknown, out uint codePage);
-                Vortice.Dxc.IDxcBlob pixelShaderResult = pixelShaderOperation.GetResult();
-                var pixelShader = pixelShaderResult.AsMemory();
-                //*/
-
                 // Compile .NET to HLSL
                 var shader = new Shaders();
                 var shaderGenerator = new ShaderGenerator(shader);
                 ShaderGeneratorResult result = shaderGenerator.GenerateShader();
                 ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
                 ReadOnlyMemory<byte> pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
-                //*/
 
                 // Define the vertex input layout.
                 //NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
@@ -372,9 +330,9 @@ namespace D3D12HelloWorld.HelloTexture {
                     VertexShader = vertexShader,
                     PixelShader = pixelShader,
                     RasterizerState = RasterizerDescription.CullNone, //I think this corresponds to CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT)
-                    BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
-                    //BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
-                    //DepthStencilState = DepthStencilDescription.None,  //Default value is DepthStencilDescription.Default
+                    //BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
+                    BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
+                    DepthStencilState = DepthStencilDescription.None,  //Default value is DepthStencilDescription.Default
                     SampleMask = uint.MaxValue, //This is the default value anyway...
                     PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                     RenderTargetFormats = new[] { Format.R8G8B8A8_UNorm, },
@@ -388,30 +346,40 @@ namespace D3D12HelloWorld.HelloTexture {
 
             // Create the vertex buffer.
             {
-                // Define the geometry for a triangle.
-                var triangleVertices = new[]
-                {
-                    new Vertex { Position = new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), TexCoord = new Vector2(0.5f, 0.0f), },
-                    new Vertex { Position = new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), TexCoord = new Vector2(1.0f, 1.0f), },
-                    new Vertex { Position = new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), TexCoord = new Vector2(0.0f, 1.0f), },
-                };
+                var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice), @"..\..\..\Mutiny\Models\cannon_boss.X");
+                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model) firstMesh
+                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
 
-                int vertexBufferSize = triangleVertices.Length * Unsafe.SizeOf<Vertex>();
+                mVertexBuffer = firstMesh.VertexBuffer;
+                mVertexBufferView = firstMesh.Model.Meshes[0].MeshDraw.VertexBufferViews![0];
 
-                // Note: using upload heaps to transfer static data like vert buffers is not 
-                // recommended. Every time the GPU needs it, the upload heap will be marshalled 
-                // over. Please read up on Default Heap usage. An upload heap is used here for 
-                // code simplicity and because there are very few verts to actually transfer.
-                mVertexBuffer = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-                                                                ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
+                mIndexBuffer = firstMesh.IndexBuffer;
+                mIndexBufferView = firstMesh.Model.Meshes[0].MeshDraw.IndexBufferView;
 
-                // Copy the triangle data to the vertex buffer.
-                mVertexBuffer.SetData(triangleVertices);
+                //// Define the geometry for a triangle.
+                //var triangleVertices = new[]
+                //{
+                //    new Vertex { Position = new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), TexCoord = new Vector2(0.5f, 0.0f), },
+                //    new Vertex { Position = new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), TexCoord = new Vector2(1.0f, 1.0f), },
+                //    new Vertex { Position = new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), TexCoord = new Vector2(0.0f, 1.0f), },
+                //};
 
-                // Initialize the vertex buffer view.
-                mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
-                mVertexBufferView.StrideInBytes = Unsafe.SizeOf<Vertex>();
-                mVertexBufferView.SizeInBytes = vertexBufferSize;
+                //int vertexBufferSize = triangleVertices.Length * Unsafe.SizeOf<Vertex>();
+
+                //// Note: using upload heaps to transfer static data like vert buffers is not 
+                //// recommended. Every time the GPU needs it, the upload heap will be marshalled 
+                //// over. Please read up on Default Heap usage. An upload heap is used here for 
+                //// code simplicity and because there are very few verts to actually transfer.
+                //mVertexBuffer = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+                //                                                ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
+
+                //// Copy the triangle data to the vertex buffer.
+                //mVertexBuffer.SetData(triangleVertices);
+
+                //// Initialize the vertex buffer view.
+                //mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
+                //mVertexBufferView.StrideInBytes = Unsafe.SizeOf<Vertex>();
+                //mVertexBufferView.SizeInBytes = vertexBufferSize;
             }
 
 
@@ -424,108 +392,60 @@ namespace D3D12HelloWorld.HelloTexture {
             // Create the texture.
             {
                 // Describe and create a Texture2D.
-                var textureDesc = ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm, TextureWidth, TextureHeight, 1, 1, 1, 0, ResourceFlags.None);
-                mTexture = mDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
-                                                           textureDesc, ResourceStates.CopyDest, null);
+                ResourceDescription textureDesc;
+                var textureFile = new FileInfo(@"C:\Users\samne\Source\Repos\Sohra\DirectX-Graphics-Samples\HelloTriangle\Mutiny\Textures\CannonBoss_tex.jpg");
+                if (textureFile.Exists) {
+                    using (FileStream stream = File.OpenRead(textureFile.FullName)) {
+                        var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                        var firstFrame = decoder.Frames.First();
 
-                var uploadBufferSize = mDevice.GetRequiredIntermediateSize(mTexture, 0, 1);
+                        var format = firstFrame.Format.BitsPerPixel == 32
+                                   ? Format.R8G8B8A8_UNorm
+                                   : Format.D24_UNorm_S8_UInt; //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
+                        var pixelSizeInBytes = firstFrame.Format.BitsPerPixel / 8;
+                        var stride = firstFrame.PixelWidth * pixelSizeInBytes;
+                        var pixels = new byte[firstFrame.PixelHeight * stride];
+                        firstFrame.CopyPixels(pixels, stride, 0);
 
-                // Create the GPU upload buffer.
-                textureUploadHeap = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-                                                                    ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
-                //Upload heap must use initial resource state of GenericRead: https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createcommittedresource
-                //Default heap cannot provide CPU access - I guess that's why the intermediate heap is used?  https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_heap_type
-                //textureUploadHeap = mDevice.CreateCommittedResource(new HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), HeapFlags.None,
-                //                                                    mTexture.Description, ResourceStates.CopyDestination);
+                        textureDesc = ResourceDescription.Texture2D(format, (uint)firstFrame.PixelWidth, (uint)firstFrame.PixelHeight, 1, 1, 1, 0, ResourceFlags.None);
+                        mTexture = mDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
+                                                                   textureDesc, ResourceStates.CopyDest, null);
 
-                // Copy data to the intermediate upload heap and then schedule a copy 
-                // from the upload heap to the Texture2D.
-                Span<byte> texture = GenerateTextureData();
+                        var uploadBufferSize = mDevice.GetRequiredIntermediateSize(mTexture, 0, 1);
 
-                /*DX12GE Texture.Create2D<T>(GD d, Span<T> data, width, height, format... etc)
-                  Creates resource with default heap properties, and no resource flags - so not exactly the same as mTexture, or textureUploadHeap...
-                  Dimension is Texture2D, same as textureDesc
-                  Then it calls SetData<T>(Span<T>, int offset = 0) which for Texture2D dimensions, creates an "upload resource" with HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), no flags, ResourceState CopyDestination
-                  Then it calls WriteToSubresource on this... creates a copy command list, calls copyCommandList.CopyResource(uploadBuffer, this) being the texture resource, then it calls flush on that commandlist
-                  The C++ code didn't take this Texture2D-specific pathway, treating it more like a generic buffer...  For compatibility with the HLSL shader, perhaps ought to copy that...
-                  So the DX12GE equivalent would be GraphicsResource.CreateBuffer<T>(GD d, Span<T> d, resourceFFlags, HeapType = default)
-                  That would CreateCommittedResource with Dimension Buffer by default, on the default heap.  If we overrode that to UploadHeap then it would set the ResourceState to GenericRead, but otherwise it is 0, Common
-                  Then it calls SetData and this time because of the Buffer dimension, and if on the default heap (yes) it would create another buffer on the upload heap, just like textureUploadHeap
-                //Then it create s a new copy commandlist, calls CopyBufferRegion (as opposed to CopyResource like the Texture case did), then flush...
-                So only difference with C++ and the DX12GE buffer version is the ResourceState of the mTexture - they set CopyDestination DX12GE uses Common (0)...
-                And then the copy orchestration, C++ sets ResourceBarrier on CopyDestination (corresponding to what they set the initial state to) until PixelShaderResource..
-                //It does this on its original command list instead of specifically creating a new copy command list...... later it calls close and ExecuteCommandLists
-                //which should accomplish the same as Flush..
-                */
-                ////**************************************************************** THIS DOES NOT CRASH BUT RENDERS ALL BLACK **************************************************
-                //Incidentally, this is exactly what the Span<T> overload of WriteToSubresource<T> (unsafe fixed, GetPinnableReference)
-                //unsafe
-                //{
-                //    fixed (byte* ptr = &texture.GetPinnableReference())
-                //    {
-                //        var textureData = new SubresourceInfo
-                //        {
-                //            Offset = (long)ptr,
-                //            RowPitch = TextureWidth * TexturePixelSize,
-                //        };
-                //        textureData.DepthPitch = textureData.RowPitch * TextureHeight;
+                        // Create the GPU upload buffer.
+                        textureUploadHeap = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+                                                                            ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
 
-                //        mDevice.UpdateSubResources(mCommandList, mTexture, textureUploadHeap, 0, 0, new[] { textureData });
-                //    }
-                //}
-                ////**************************************************************** THIS DOES NOT CRASH BUT RENDERS ALL BLACK **************************************************
+                        Span<byte> texture = pixels.AsSpan();
 
-                mDevice.UpdateSubresource(mCommandList, mTexture, textureUploadHeap, 0, 0, texture);
+                        mDevice.UpdateSubresource(mCommandList, mTexture, textureUploadHeap, 0, 0, texture);
+                    }
+                }
+                else {
+                    textureDesc = ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm, TextureWidth, TextureHeight, 1, 1, 1, 0, ResourceFlags.None);
+                    mTexture = mDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
+                                                               textureDesc, ResourceStates.CopyDest, null);
 
-                ////Try as I might, I can't get the original C++ code to create a texture to work, so fuck it, DX12GE buffer method:
-                //IntPtr mappedResource = textureUploadHeap.Map(0);
-                //texture.CopyTo(mappedResource);
-                //textureUploadHeap.Unmap(0);
+                    var uploadBufferSize = mDevice.GetRequiredIntermediateSize(mTexture, 0, 1);
 
-                ////...and this doesn't work either...
-                //var commandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Copy));
-                //var copyCommandAllocator = mDevice.CreateCommandAllocator(CommandListType.Copy);
-                //var copyCommandList = mDevice.CreateCommandList(0, CommandListType.Copy, copyCommandAllocator, null);
-                //copyCommandList.CopyBufferRegion(textureUploadHeap, 0, mTexture, 0, texture.Length * Unsafe.SizeOf<byte>());
-                //copyCommandList.Close();  //But now calling this throws a SharpGen.Runtime.SharpGenException: HRESULT: [0x80070057], Module:[General], ApiCode:[E_INVALIDARG/ Invalid Arguments], Message: The parameter is incorrect.
-                ////Why doesn't anything work around this shithole?
-                //commandQueue.ExecuteCommandLists(copyCommandList);  //Fall through to call this further down
-                ////NativeCommandQueue.Signal(Fence, fenceValue);
-                ////blah...
-                //Fuck me. That doesn't work.  Using the existing command list doesn't work (it just fails same error down on ~L453 where it is closed, and the debug layer tells me fucking nothing)
-                //dropping the resource barrier, and going to the DX12GE initial resource state doesn't work...
-                //
-                //mCommandList.CopyBufferRegion(textureUploadHeap, 0, mTexture, 0, texture.Length * Unsafe.SizeOf<byte>());
+                    // Create the GPU upload buffer.
+                    textureUploadHeap = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+                                                                        ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
+                    //Upload heap must use initial resource state of GenericRead: https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-createcommittedresource
+                    //Default heap cannot provide CPU access - I guess that's why the intermediate heap is used?  https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_heap_type
+                    //textureUploadHeap = mDevice.CreateCommittedResource(new HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), HeapFlags.None,
+                    //                                                    mTexture.Description, ResourceStates.CopyDestination);
 
-                ////**************************************************************** THIS DOES NOT CRASH BUT RENDERS ALL BLACK **************************************************
-                //var textureDesc = ResourceDescription.Texture2D(Format.R8G8B8A8_UNorm, TextureWidth, TextureHeight, 1, 1, 1, 0, ResourceFlags.None);
-                //mTexture = mDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
-                //                                           textureDesc, ResourceStates.CopyDestination, null);
-                //// Create the GPU upload buffer.
-                //textureUploadHeap = mDevice.CreateCommittedResource(new HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), HeapFlags.None,
-                //                                                    mTexture.Description, ResourceStates.CopyDestination);
-                //textureUploadHeap.WriteToSubresource(0, texture, TextureWidth * TexturePixelSize, TextureWidth * TexturePixelSize * TextureHeight);
-                ////var commandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Copy));
-                ////var copyCommandAllocator = mDevice.CreateCommandAllocator(CommandListType.Copy);
-                ////var copyCommandList = mDevice.CreateCommandList(0, CommandListType.Copy, copyCommandAllocator, null);
-                ////copyCommandList.CopyResource(textureUploadHeap, mTexture);
-                //mCommandList.CopyResource(textureUploadHeap, mTexture);
-                ////**************************************************************** THIS DOES NOT CRASH BUT RENDERS ALL BLACK **************************************************
+                    // Copy data to the intermediate upload heap and then schedule a copy 
+                    // from the upload heap to the Texture2D.
+                    Span<byte> texture = GenerateTextureData();
+
+                    mDevice.UpdateSubresource(mCommandList, mTexture, textureUploadHeap, 0, 0, texture);
+                }
 
                 //NOTE: This is not required if using a copy queue, see MJP comment at https://www.gamedev.net/forums/topic/704025-use-texture2darray-in-d3d12/
                 mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mTexture, ResourceStates.CopyDest, ResourceStates.PixelShaderResource));
-
-                //copyCommandList.Close();  //But now calling this throws a SharpGen.Runtime.SharpGenException: HRESULT: [0x80070057], Module:[General], ApiCode:[E_INVALIDARG/ Invalid Arguments], Message: The parameter is incorrect.
-                //commandQueue.ExecuteCommandList(copyCommandList);
-
-
-                /*System.AccessViolationException
-  HResult=0x80004003
-  Message=Attempted to read or write protected memory. This is often an indication that other memory is corrupt.
-  Source=<Cannot evaluate the exception source>
-  StackTrace:
-<Cannot evaluate the exception stack trace>
-*/
 
                 // Describe and create a SRV for the texture.
                 var srvDesc = new ShaderResourceViewDescription
@@ -624,8 +544,14 @@ namespace D3D12HelloWorld.HelloTexture {
             var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
             mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+            mCommandList.IASetIndexBuffer(mIndexBufferView);
             mCommandList.IASetVertexBuffers(0, mVertexBufferView);
-            mCommandList.DrawInstanced(3, 1, 0, 0);
+            if (mIndexBufferView != null) {
+                mCommandList.DrawIndexedInstanced(mIndexBufferView.Value.SizeInBytes / (mIndexBufferView.Value.Format.GetBitsPerPixel() >> 3), 1, 0, 0, 0);
+            }
+            else {
+                mCommandList.DrawInstanced(mVertexBufferView.SizeInBytes / mVertexBufferView.StrideInBytes, 1, 0, 0);
+            }
 
             // Indicate that the back buffer will now be used to present.
             mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mRenderTargets[mFrameIndex], ResourceStates.RenderTarget, ResourceStates.Present));
