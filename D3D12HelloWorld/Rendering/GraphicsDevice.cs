@@ -34,8 +34,16 @@ namespace D3D12HelloWorld.Rendering {
 
         public DescriptorAllocator DepthStencilViewAllocator { get; set; }
         //public DescriptorAllocator RenderTargetViewAllocator { get; set; }
+        /// <summary>
+        /// Gets the descriptor allocator for shader resource views. This allocator manages a descriptor heap that is not shader-visible, 
+        /// typically used for creating descriptors that are used on the CPU side, such as for copying descriptors between heaps.
+        /// </summary>
         public DescriptorAllocator ShaderResourceViewAllocator { get; set; }
         public DescriptorAllocator SamplerAllocator { get; set; }
+        /// <summary>
+        /// Gets the descriptor allocator for shader-visible shader resource views. This allocator manages a shader-visible descriptor heap, 
+        /// typically used for creating descriptors that are referenced by shaders running on the GPU.
+        /// </summary>
         public DescriptorAllocator ShaderVisibleShaderResourceViewAllocator { get; }
         public DescriptorAllocator ShaderVisibleSamplerAllocator { get; }
 

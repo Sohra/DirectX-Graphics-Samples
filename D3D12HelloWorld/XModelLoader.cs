@@ -767,12 +767,12 @@ namespace D3D12HelloWorld {
                 throw new InvalidOperationException($"Cannot use this shader without first constructing with or assigning a {nameof(Texture)}");
 
             //Based on MaterialShader.Accept, which subclassed RasterizationShaderBase
-            context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
+            //context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
+            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
 
             var srv = ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format);
             ColorTexture = new Texture2D(srv);

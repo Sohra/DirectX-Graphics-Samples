@@ -119,6 +119,22 @@ namespace D3D12HelloWorld.Rendering {
             FillShaderResourceViewRootParameters(list);
             FillSamplerRootParameters(list);
             var description = new RootSignatureDescription1(RootSignatureFlags.AllowInputAssemblerInputLayout, list.ToArray());
+            var sampler = new StaticSamplerDescription {
+                Filter = Filter.MinMagMipPoint,
+                AddressU = TextureAddressMode.Border,
+                AddressV = TextureAddressMode.Border,
+                AddressW = TextureAddressMode.Border,
+                MipLODBias = 0,
+                MaxAnisotropy = 0,
+                ComparisonFunction = ComparisonFunction.Never,
+                BorderColor = StaticBorderColor.TransparentBlack,
+                MinLOD = 0.0f,
+                MaxLOD = 0.0f,
+                ShaderRegister = 0,
+                RegisterSpace = 0,
+                ShaderVisibility = ShaderVisibility.Pixel,
+            };
+            description.StaticSamplers = new[] { sampler };
             return mDevice.NativeDevice.CreateRootSignature<ID3D12RootSignature>(new VersionedRootSignatureDescription(description));
         }
 
