@@ -4,8 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using System.Windows.Media.Media3D;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 
@@ -66,6 +64,17 @@ namespace D3D12HelloWorld.Rendering {
                 CpuDescriptorHandle result = DescriptorHeap.GetCPUDescriptorHandleForHeapStart().Offset(CurrentDescriptorCount, DescriptorHandleIncrementSize);
                 CurrentDescriptorCount += count;
                 return result;
+            }
+        }
+
+        public CpuDescriptorHandle AllocateSlot(int slot) {
+            lock (mAllocatorLock) {
+                if (slot < 0 || slot > mDescription.DescriptorCount - 1) {
+                    throw new ArgumentOutOfRangeException(nameof(slot), "Slot must be between 0 and the total descriptor count - 1.");
+                }
+
+                CpuDescriptorHandle descriptor = DescriptorHeap.GetCPUDescriptorHandleForHeapStart().Offset(slot, DescriptorHandleIncrementSize);
+                return descriptor;
             }
         }
 
@@ -218,6 +227,31 @@ namespace D3D12HelloWorld.Rendering {
         }
     }
 
+    public class RenderTargetView : ResourceView {
+        public RenderTargetView(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator)
+            : this(resource, renderTargetViewAllocator, null) {
+        }
+
+        internal RenderTargetView(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator, RenderTargetViewDescription? description)
+            : base(resource, CreateRenderTargetView(resource, renderTargetViewAllocator, description)) {
+            Description = description;
+        }
+
+        internal RenderTargetViewDescription? Description { get; }
+
+        public static RenderTargetView FromTexture2D(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator, Format format) {
+            return new RenderTargetView(resource, renderTargetViewAllocator, new RenderTargetViewDescription {
+                ViewDimension = RenderTargetViewDimension.Texture2D,
+                Format = format,
+            });
+        }
+
+        private static CpuDescriptorHandle CreateRenderTargetView(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator, RenderTargetViewDescription? description) {
+            CpuDescriptorHandle handle = renderTargetViewAllocator.Allocate(1);
+            resource.GraphicsDevice.NativeDevice.CreateRenderTargetView(resource.NativeResource, description, handle);
+            return handle;
+        }
+    }
 
     internal class D3DXUtilities {
         public const int ComponentMappingMask = 0x7;

@@ -2,33 +2,29 @@
 
 namespace D3D12HelloWorld.Rendering {
     public class Sampler {
-        public Sampler(ID3D12Device device) : this(device, SamplerDescription.Default) {
+        SamplerDescription mDescription;
+
+        public Sampler(ID3D12Device device, DescriptorAllocator samplerAllocator) : this(device, samplerAllocator, SamplerDescription.Default) {
         }
 
         public Sampler(Sampler sampler) {
-            //GraphicsDevice = sampler.GraphicsDevice;
-            Description = sampler.Description;
+            mDescription = sampler.Description;
             CpuDescriptorHandle = sampler.CpuDescriptorHandle;
         }
 
-        public Sampler(ID3D12Device device, SamplerDescription description) {
-            //GraphicsDevice = device;
-            Description = description;
-            //CpuDescriptorHandle = CreateSampler(device);
+        public Sampler(ID3D12Device device, DescriptorAllocator samplerAllocator, SamplerDescription description) {
+            mDescription = description;
+            CpuDescriptorHandle = CreateSampler(device, samplerAllocator);
         }
 
-        //public GraphicsDevice GraphicsDevice { get; }
-
-        public SamplerDescription Description { get; }
-
+        public SamplerDescription Description => mDescription;
         public CpuDescriptorHandle CpuDescriptorHandle { get; }
 
-        //private IntPtr CreateSampler(ID3D12Device device)
-        //{
-        //    IntPtr cpuHandle = GraphicsDevice.SamplerAllocator.Allocate(1);
-        //    device.CreateSampler(Description, cpuHandle.ToCpuDescriptorHandle());
+        private CpuDescriptorHandle CreateSampler(ID3D12Device device, DescriptorAllocator samplerAllocator) {
+            CpuDescriptorHandle cpuHandle = samplerAllocator.Allocate(1);
+            device.CreateSampler(ref mDescription, cpuHandle);
 
-        //    return cpuHandle;
-        //}
+            return cpuHandle;
+        }
     }
 }

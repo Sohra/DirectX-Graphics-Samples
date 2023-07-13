@@ -2,7 +2,6 @@
 using Serilog;
 using SharpGen.Runtime;
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -12,12 +11,10 @@ using System.Windows.Forms;
 using System.Windows.Media;
 using Vortice;
 using Vortice.Direct3D12;
-using Vortice.Dxc;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
-namespace D3D12HelloWorld.Mutiny
-{
+namespace D3D12HelloWorld.Mutiny {
     public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
 
@@ -32,15 +29,14 @@ namespace D3D12HelloWorld.Mutiny
         RawRect mScissorRect;
         IDXGISwapChain3 mSwapChain;
         ID3D12Device mDevice;
-        readonly ID3D12Resource[] mRenderTargets;
-        readonly ID3D12CommandAllocator[] mCommandAllocators;
-        ID3D12CommandQueue mCommandQueue;
-        ID3D12RootSignature mRootSignature;
-        ID3D12DescriptorHeap mRtvHeap;
-        ID3D12PipelineState mPipelineState;  //Potentially replaceable by mGraphicsDevice
-        ID3D12GraphicsCommandList mCommandList;  //Potentially replaceable by mGraphicsDevice
+        readonly RenderTargetView[] mRenderTargets;
+        readonly ID3D12CommandAllocator[] mCommandAllocators; //Potentially replaceable if migrating to the higher CommandList abstraction which creates its own allocator
+        ID3D12RootSignature mRootSignature;  //Potentially replaceable by MaterialPass.PipelineState
+        DescriptorAllocator mRtvHeap;
+        DescriptorAllocator mSrvHeap;
+        //ID3D12PipelineState mPipelineState;  //Potentially replaceable by mGraphicsDevice
+        ID3D12GraphicsCommandList mCommandList;  //Potentially replaceable by mGraphicsDevice.CommandList, but means we can't reuse mCommandAllocators
         GraphicsDevice mGraphicsDevice;
-        int mRtvDescriptorSize;
 
         // App resources.
         GraphicsResource mDirectionalLightGroupBuffer;
@@ -75,7 +71,7 @@ namespace D3D12HelloWorld.Mutiny
 
             mViewport = new Viewport(width, height);
             mScissorRect = new RawRect(0, 0, Width, Height);
-            mRenderTargets = new ID3D12Resource[FrameCount];
+            mRenderTargets = new RenderTargetView[FrameCount];
             mCommandAllocators = new ID3D12CommandAllocator[FrameCount];
             mFenceValues = new ulong[FrameCount];
 
@@ -85,7 +81,7 @@ namespace D3D12HelloWorld.Mutiny
             this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
 
-        private void HandleCompositionTarget_Rendering(object sender, EventArgs e) {
+        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
             lock (mTickLock) {
                 OnUpdate();
 
@@ -103,7 +99,7 @@ namespace D3D12HelloWorld.Mutiny
             mDirectionalLightGroupBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
             mGlobalBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
             mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
-            mDefaultSampler = new Sampler(mDevice);
+            mDefaultSampler = new Sampler(mDevice, mGraphicsDevice.SamplerAllocator);
         }
 
         /// <summary>
@@ -124,7 +120,14 @@ namespace D3D12HelloWorld.Mutiny
             PopulateCommandList();
 
             // Execute the command list.
-            mCommandQueue.ExecuteCommandList(mCommandList);
+            //Problem with using the higher level abstraction is that it does more than just execute the command list,
+            //it also schedules a Signal command in the queue and increments the fence value for the next frame, and then waits for the GPU to complete.
+            //The DirectX12GameEngine would next present the frame to the screen...
+            //This differs from HelloTexture in that the command list would be executed (writing to the back buffer) and the previous frame would be presented
+            //and then it would similarly schedule a Signal command in the queue, update the frame index to the current back buffer,
+            //wait for the next frame to be rendered, and then increment the fence value for the next frame.
+            //mGraphicsDevice.CommandList.Flush();
+            mGraphicsDevice.DirectCommandQueue.ExecuteCommandList(mCommandList);
             Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Direct Command list submitted to GPU for execution. Frame index: {mFrameIndex} with fence value {fenceValue}",
                              nameof(OnRender), mFrameIndex, mFenceValues[mFrameIndex]);
 
@@ -152,17 +155,15 @@ namespace D3D12HelloWorld.Mutiny
 
             for (int i = 0; i < mCommandAllocators.Length; i++) {
                 mCommandAllocators[i].Dispose();
-                mRenderTargets[i].Dispose();
+                mRenderTargets[i].Resource.Dispose();
             }
             mCommandList.Dispose();
             mGraphicsDevice.Dispose();
 
             mFenceEvent.Dispose();
-            //Replacing CloseHandle(mFenceEvent);
 
             mRtvHeap.Dispose();
             mSwapChain.Dispose();
-            mCommandQueue.Dispose();
 
             mDevice.Dispose();
             //mFactory.Dispose();
@@ -269,55 +270,55 @@ namespace D3D12HelloWorld.Mutiny
             //12_1
             //var featureLevel = mDevice.CheckMaxSupportedFeatureLevel();
 
-            // Describe and create the command queue.
-            mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
-            mCommandQueue.Name = "Direct Queue";
+            //Rather than just a command queue, use the GraphicsDevice abstraction which creates CommandQueues and the CommandList, and an associated CommandAllocator
+            mGraphicsDevice = new GraphicsDevice(mDevice);
 
             // Describe and create the swap chain.
+            var backBufferFormat = Format.R8G8B8A8_UNorm;
             var swapChainDesc = new SwapChainDescription1 {
                 BufferCount = FrameCount,
                 Width = Width,
                 Height = Height,
-                Format = Format.R8G8B8A8_UNorm,
+                Format = backBufferFormat,
                 BufferUsage = Usage.RenderTargetOutput,
                 SwapEffect = SwapEffect.FlipDiscard,
-                SampleDescription = new SampleDescription(1, 0),
+                SampleDescription = SampleDescription.Default,
                 //AlphaMode = AlphaMode.Ignore,
             };
 
             // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
+            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mGraphicsDevice.DirectCommandQueue.NativeCommandQueue, base.Handle, swapChainDesc);
             //factory.MakeWindowAssociation(base.Handle, WindowAssociationFlags.IgnoreAltEnter);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
-                // Describe and create a render target view (RTV) descriptor heap.
-                var rtvHeapDesc = new DescriptorHeapDescription {
-                    DescriptorCount = FrameCount,
-                    Type = DescriptorHeapType.RenderTargetView,
-                    Flags = DescriptorHeapFlags.None,
-                };
-                mRtvHeap = mDevice.CreateDescriptorHeap(rtvHeapDesc);
+                //if (mGraphicsDevice.RenderTargetViewAllocator.DescriptorHeap.Description.DescriptorCount != FrameCount) {
+                //    mGraphicsDevice.RenderTargetViewAllocator.Dispose();
+                //    mGraphicsDevice.RenderTargetViewAllocator = new DescriptorAllocator(mDevice, DescriptorHeapType.RenderTargetView, FrameCount);
+                //}
 
-                mRtvDescriptorSize = mDevice.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);  //Or mRtvHeap.Description.Type
+                mRtvHeap = new DescriptorAllocator(mDevice, DescriptorHeapType.RenderTargetView, FrameCount);
+
+                mSrvHeap = new DescriptorAllocator(mDevice, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1);
             }
 
             // Create frame resources.
             {
-                CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart();
+                //CpuDescriptorHandle rtvHandle = mRtvHeap.Allocate(swapChainDesc.BufferCount);
 
                 // Create a RTV and a command allocator for each frame.
                 for (int n = 0; n < swapChainDesc.BufferCount; n++) {
-                    mRenderTargets[n] = mSwapChain.GetBuffer<ID3D12Resource>(n);
+                    var renderTargetTexture = new Texture(mGraphicsDevice, mSwapChain.GetBuffer<ID3D12Resource>(n));
+                    mRenderTargets[n] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap, backBufferFormat);
 
-                    mDevice.CreateRenderTargetView(mRenderTargets[n], null, rtvHandle);
-                    rtvHandle += 1 * mRtvDescriptorSize;
 
                     mCommandAllocators[n] = mDevice.CreateCommandAllocator(CommandListType.Direct);
                     mCommandAllocators[n].Name = $"Direct Allocator {n}";
                 }
+
+                mGraphicsDevice.CommandList.SetRenderTargets(null, mRenderTargets);  //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly
             }
         }
 
@@ -325,18 +326,52 @@ namespace D3D12HelloWorld.Mutiny
         /// Load the sample assets
         /// </summary>
         void LoadAssets() {
+            // Create the root signature.
             {
-                var rootSignatureDesc = new RootSignatureDescription1 {
-                    Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
+                var highestVersion = mDevice.CheckHighestRootSignatureVersion(RootSignatureVersion.Version11);
+                var sampler = new StaticSamplerDescription {
+                    Filter = Filter.MinMagMipPoint,
+                    AddressU = TextureAddressMode.Border,
+                    AddressV = TextureAddressMode.Border,
+                    AddressW = TextureAddressMode.Border,
+                    MipLODBias = 0,
+                    MaxAnisotropy = 0,
+                    ComparisonFunction = ComparisonFunction.Never,
+                    BorderColor = StaticBorderColor.TransparentBlack,
+                    MinLOD = 0.0f,
+                    MaxLOD = 0.0f,
+                    ShaderRegister = 0,
+                    RegisterSpace = 0,
+                    ShaderVisibility = ShaderVisibility.Pixel,
                 };
-                //mRootSignature = mDevice.CreateRootSignature(0, new VersionedRootSignatureDescription(rootSignatureDesc));
-                mRootSignature = mDevice.CreateRootSignature(rootSignatureDesc);
+                VersionedRootSignatureDescription rootSignatureDesc;
+                switch (highestVersion) {
+                    case RootSignatureVersion.Version11:
+                        var range1 = new DescriptorRange1(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1, DescriptorRangeFlags.DataStatic); //I guess the -1 offset corresponds to D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND but have yet to successfully confirm it
+                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription1 {
+                            Parameters = new[] { new RootParameter1(new RootDescriptorTable1(range1), ShaderVisibility.Pixel) },
+                            StaticSamplers = new[] { sampler },
+                            Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
+                        });
+                        break;
+
+                    case RootSignatureVersion.Version10:
+                    default:
+                        var range = new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1); //I guess the -1 offset corresponds to D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND but have yet to successfully confirm it
+                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription {
+                            Parameters = new[] { new RootParameter(new RootDescriptorTable(range), ShaderVisibility.Pixel) },
+                            StaticSamplers = new[] { sampler },
+                            Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
+                        });
+                        break;
+                }
+                mRootSignature = mDevice.CreateRootSignature(0, rootSignatureDesc);
             }
 
-            // Create the pipeline state, which includes compiling and loading shaders.
+            /*// Create the pipeline state, which includes compiling and loading shaders.
             {
                 // Compile .NET to HLSL
-                var shader = new HelloTriangle.Shaders();
+                var shader = new ColourShader();
                 var shaderGenerator = new DirectX12GameEngine.Shaders.ShaderGenerator(shader);
                 DirectX12GameEngine.Shaders.ShaderGeneratorResult result = shaderGenerator.GenerateShader();
                 ReadOnlyMemory<byte> vertexShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
@@ -344,7 +379,10 @@ namespace D3D12HelloWorld.Mutiny
 
                 // Describe and create the graphics pipeline state object (PSO).
                 var psoDesc = new GraphicsPipelineStateDescription {
-                    InputLayout = new InputLayoutDescription(FlatShadedVertex.InputElements),
+                    InputLayout = new InputLayoutDescription(new[] {
+                                                                 new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
+                                                                 new InputElementDescription("Color", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
+                                                             }),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
                     PixelShader = pixelShader,
@@ -359,19 +397,16 @@ namespace D3D12HelloWorld.Mutiny
                     SampleDescription = SampleDescription.Default,
                 };
                 mPipelineState = mDevice.CreateGraphicsPipelineState(psoDesc);
-            }
+            }*/
 
             // Create the command list.
-            mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], mPipelineState);
+            //mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], mPipelineState);
+            mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], null);
             mCommandList.Name = "Direct Command List";
 
             // Command lists are created in the recording state, but there is nothing
             // to record yet. The main loop expects it to be closed, so close it now.
             mCommandList.Close();
-
-            //Rather than just a command list, use the GraphicsDevice abstraction which creates both the CommandList
-            mGraphicsDevice = new GraphicsDevice(mDevice);
-
 
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
@@ -417,26 +452,33 @@ namespace D3D12HelloWorld.Mutiny
             // list, that command list can then be reset at any time and must be before 
             // re-recording.
             Log.Logger.Write(Serilog.Events.LogEventLevel.Verbose, "Resetting command list for frame {mFrameIndex}", mFrameIndex);
-            mCommandList.Reset(commandAllocator, mPipelineState);
+            //mCommandList.Reset(commandAllocator, mPipelineState);
+            mCommandList.Reset(commandAllocator, null);
 
             // Set necessary state.
+            //mCommandList.SetGraphicsRootSignature(mRootSignature);  //Not set by CommandList, but by RenderSystem when looping through the meshes, after setting index and vertext buggers, before the primitive topology
+            //mCommandList.SetDescriptorHeaps(1, new[] { mSrvHeap.DescriptorHeap });
+            //mCommandList.SetGraphicsRootDescriptorTable(0, mSrvHeap.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
             mCommandList.SetDescriptorHeaps(descriptorHeaps.Length, descriptorHeaps.Select(d => d.DescriptorHeap).ToArray());  //Performed by CommandList.Reset
-            //mCommandList.SetGraphicsRootSignature(mRootSignature);  //Not set by CommandList, but bny RenderSystem when looping through the meshes, after setting index and vertext buggers, before the primitive topology
+            //mCommandList.SetGraphicsRootDescriptorTable(0, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
+            //mCommandList.SetGraphicsRootDescriptorTable(1, mGraphicsDevice.ShaderVisibleSamplerAllocator.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
             mCommandList.RSSetViewports(mViewport);  //Set during CommandList.ClearState
             mCommandList.RSSetScissorRects(mScissorRect);  //Set during CommandList.ClearState
 
             // Indicate that the back buffer will be used as a render target.
             var backBufferRenderTarget = mRenderTargets[mFrameIndex];
-            mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.Present, ResourceStates.RenderTarget));
+            //mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget.Resource.NativeResource, ResourceStates.Present, ResourceStates.RenderTarget));
+            mCommandList.ResourceBarrierTransition(backBufferRenderTarget.Resource.NativeResource, ResourceStates.Present, ResourceStates.RenderTarget);
 
-            CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart() + mFrameIndex * mRtvDescriptorSize;
+            CpuDescriptorHandle rtvHandle = mRtvHeap.AllocateSlot(mFrameIndex);
+            //mGraphicsDevice.CommandList.SetRenderTargets(null, rtvHandle);  //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly
             mCommandList.OMSetRenderTargets(rtvHandle, null);  //Set during CommandList.ClearState
 
             // Record commands.
             var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);  //MyGame.BeginDraw
 
-            var meshCount = mModel.Meshes.Count();
+            var meshCount = mModel.Meshes.Count;
             var worldMatrixBuffers = new GraphicsResource[meshCount];
             for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)
             {
@@ -451,7 +493,8 @@ namespace D3D12HelloWorld.Mutiny
             //RecordCommandList(mModel, bundleCommandList, worldMatrixBuffers, 1);
 
             // Indicate that the back buffer will now be used to present.
-            mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.RenderTarget, ResourceStates.Present));
+            //mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget.Resource.NativeResource, ResourceStates.RenderTarget, ResourceStates.Present));
+            mCommandList.ResourceBarrierTransition(backBufferRenderTarget.Resource.NativeResource, ResourceStates.RenderTarget, ResourceStates.Present);
 
             mCommandList.Close();
         }
@@ -461,12 +504,12 @@ namespace D3D12HelloWorld.Mutiny
             int renderTargetCount = 1; //We don't do stereo so this is always 1
             instanceCount *= renderTargetCount;
 
-            for (int meshIndex = 0; meshIndex < model.Meshes.Count(); meshIndex++)
+            for (int meshIndex = 0; meshIndex < model.Meshes.Count; meshIndex++)
             {
                 var mesh = model.Meshes[meshIndex];
                 var material = model.Materials[mesh.MaterialIndex];
 
-                //commandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
+                commandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
                 commandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
 
                 //CommandList.SetPipelineState(material.PipelineState) performs:
@@ -485,44 +528,69 @@ namespace D3D12HelloWorld.Mutiny
                 int rootParameterIndex = 0;
                 commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
 
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
-                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
-                CpuDescriptorHandle destinationDescriptor = srvDescriptorHeap!.Allocate(1);
-                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
-                GpuDescriptorHandle gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
-                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                /*//commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  CpuDescriptorHandle destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  GpuDescriptorHandle gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
 
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
-                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
-                destinationDescriptor = srvDescriptorHeap!.Allocate(1);
-                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
-                gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
-                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                  //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
 
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mWorldMatrixBuffer.DefaultConstantBufferView);
-                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, 1);
-                destinationDescriptor = srvDescriptorHeap!.Allocate(1);
-                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
-                gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
-                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                  //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mWorldMatrixBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
 
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
-                //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
-                destinationDescriptor = srvDescriptorHeap!.Allocate(1);
-                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
-                gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
-                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                  //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                */
 
                 //commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
                 //long gpuDescriptor = CopyDescriptors(samplerDescriptorHeap, mDefaultSampler.CpuDescriptorHandle, 1);
-                destinationDescriptor = samplerDescriptorHeap!.Allocate(1);
+                CpuDescriptorHandle destinationDescriptor = samplerDescriptorHeap!.Allocate(1);
                 mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDefaultSampler.CpuDescriptorHandle, samplerDescriptorHeap.DescriptorHeap.Description.Type);
-                gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                GpuDescriptorHandle gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
                 commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
 
-                //commandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3), instanceCount, 0, 0, 0);
-                var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
-                commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount, 0, 0);
+                if (material.ShaderResourceViewDescriptorSet != null) {
+                    //commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.ShaderResourceViewDescriptorSet);
+                    //SetGraphicsRootDescriptorTable(rootParameterIndex, srvDescriptorHeap, material.ShaderResourceViewDescriptorSet.StartCpuDescriptorHandle, material.ShaderResourceViewDescriptorSet.DescriptorCapacity);
+                    //GpuDescriptorHandle value = CopyDescriptors(srvDescriptorHeap, material.ShaderResourceViewDescriptorSet.StartCpuDescriptorHandle, material.ShaderResourceViewDescriptorSet.DescriptorCapacity);
+                    destinationDescriptor = srvDescriptorHeap!.Allocate(material.ShaderResourceViewDescriptorSet.DescriptorCapacity);
+                    mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(material.ShaderResourceViewDescriptorSet.DescriptorCapacity, destinationDescriptor, material.ShaderResourceViewDescriptorSet.StartCpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                    gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                }
+
+                if (material.SamplerDescriptorSet != null) {
+                    //commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
+                    //SetGraphicsRootDescriptorTable(rootParameterIndex, samplerDescriptorHeap, material.SamplerDescriptorSet.StartCpuDescriptorHandle, material.SamplerDescriptorSet.DescriptorCapacity);
+                    //GpuDescriptorHandle value = CopyDescriptors(samplerDescriptorHeap, material.SamplerDescriptorSet.StartCpuDescriptorHandle, material.SamplerDescriptorSet.DescriptorCapacity);
+                    destinationDescriptor = samplerDescriptorHeap.Allocate(material.SamplerDescriptorSet.DescriptorCapacity);
+                    mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(material.SamplerDescriptorSet.DescriptorCapacity, destinationDescriptor, material.SamplerDescriptorSet.StartCpuDescriptorHandle, samplerDescriptorHeap.DescriptorHeap.Description.Type);
+                    gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex, gpuDescriptor);
+                }
+
+                if (mesh.MeshDraw.IndexBufferView != null) {
+                    commandList.DrawIndexedInstanced(mesh.MeshDraw.IndexBufferView.Value.SizeInBytes / (mesh.MeshDraw.IndexBufferView.Value.Format.GetBitsPerPixel() >> 3), instanceCount, 0, 0, 0);
+                }
+                else {
+                    var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
+                    commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount, 0, 0);
+                }
             }
         }
 
@@ -545,15 +613,27 @@ namespace D3D12HelloWorld.Mutiny
                 int rootParameterIndex = 0;
                 commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
 
-                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
-                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
-                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[meshIndex].DefaultConstantBufferView);
-                commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[meshIndex].DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
                 commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
 
-                //commandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3), instanceCount, 0, 0, 0);
-                var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
-                commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount);
+                if (material.ShaderResourceViewDescriptorSet != null) {
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.ShaderResourceViewDescriptorSet);
+                }
+
+                if (material.SamplerDescriptorSet != null) {
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
+                }
+
+                if (mesh.MeshDraw.IndexBufferView != null) {
+                    commandList.DrawIndexedInstanced(mesh.MeshDraw.IndexBufferView.Value.SizeInBytes / (mesh.MeshDraw.IndexBufferView.Value.Format.GetBitsPerPixel() >> 3), instanceCount);
+                }
+                else {
+                    var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
+                    commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount);
+                }
             }
         }
 
@@ -564,7 +644,8 @@ namespace D3D12HelloWorld.Mutiny
                              nameof(WaitForGpu), requiredFenceValue, mFrameIndex);
 
             // Schedule a Signal command in the queue.
-            mCommandQueue.Signal(mFence, requiredFenceValue);
+            //TODO: Work out how to change this to remove dependency on internal member: NativeCommandQueue
+            mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, requiredFenceValue);
 
             // Wait until the fence has been processed.
             mFenceEvent.Reset();
@@ -584,7 +665,8 @@ namespace D3D12HelloWorld.Mutiny
         void MoveToNextFrame() {
             // Schedule a Signal command in the queue.
             ulong currentFenceValue = mFenceValues[mFrameIndex];
-            mCommandQueue.Signal(mFence, currentFenceValue);
+            //TODO: Work out how to change this to remove dependency on internal member: NativeCommandQueue
+            mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, currentFenceValue);
 
             // Update the frame index.
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
@@ -604,111 +686,6 @@ namespace D3D12HelloWorld.Mutiny
             mFenceValues[mFrameIndex] = currentFenceValue + 1;
             Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Required fence value {requiredFenceValue} for Frame index {mFrameIndex}.",
                              nameof(MoveToNextFrame), mFenceValues[mFrameIndex], mFrameIndex);
-        }
-
-        protected static ReadOnlyMemory<byte> CompileBytecode(DxcShaderStage stage, string shaderName,
-                                                              string entryPoint, DxcShaderModel? shaderModel = default) {
-            string assetsPath = AppContext.BaseDirectory; // System.IO.Path.Combine(AppContext.BaseDirectory, "Shaders");
-            string fileName = System.IO.Path.Combine(assetsPath, shaderName);
-            string shaderSource = System.IO.File.ReadAllText(fileName);
-
-            var options = new DxcCompilerOptions();
-            if (shaderModel != null) {
-                options.ShaderModel = shaderModel.Value;
-            }
-            else {
-                options.ShaderModel = DxcShaderModel.Model6_4;
-            }
-
-            using (var includeHandler = new ShaderIncludeHandler(assetsPath)) {
-                using IDxcResult results = DxcCompiler.Compile(stage, shaderSource, entryPoint, options,
-                    fileName: fileName,
-                    includeHandler: includeHandler);
-                if (results.GetStatus().Failure) {
-                    throw new Exception(results.GetErrors());
-                }
-
-                return results.GetObjectBytecodeMemory();
-            }
-        }
-
-        private class ShaderIncludeHandler : CallbackBase, IDxcIncludeHandler {
-            private readonly string[] _includeDirectories;
-            private readonly Dictionary<string, SourceCodeBlob> _sourceFiles = new Dictionary<string, SourceCodeBlob>();
-
-            public ShaderIncludeHandler(params string[] includeDirectories) {
-                _includeDirectories = includeDirectories;
-            }
-
-            protected override void DisposeCore(bool disposing) {
-                foreach (var pinnedObject in _sourceFiles.Values)
-                    pinnedObject?.Dispose();
-
-                _sourceFiles.Clear();
-            }
-
-            public Result LoadSource(string fileName, out IDxcBlob? includeSource) {
-                if (fileName.StartsWith("./"))
-                    fileName = fileName.Substring(2);
-
-                var includeFile = GetFilePath(fileName);
-
-                if (string.IsNullOrEmpty(includeFile)) {
-                    includeSource = default;
-
-                    return Result.Fail;
-                }
-
-                if (!_sourceFiles.TryGetValue(includeFile, out SourceCodeBlob? sourceCodeBlob)) {
-                    byte[] data = NewMethod(includeFile);
-
-                    sourceCodeBlob = new SourceCodeBlob(data);
-                    _sourceFiles.Add(includeFile, sourceCodeBlob);
-                }
-
-                includeSource = sourceCodeBlob.Blob;
-
-                return Result.Ok;
-            }
-
-            private static byte[] NewMethod(string includeFile) => System.IO.File.ReadAllBytes(includeFile);
-
-            private string? GetFilePath(string fileName) {
-                for (int i = 0; i < _includeDirectories.Length; i++) {
-                    var filePath = System.IO.Path.GetFullPath(System.IO.Path.Combine(_includeDirectories[i], fileName));
-
-                    if (System.IO.File.Exists(filePath))
-                        return filePath;
-                }
-
-                return null;
-            }
-
-
-            private class SourceCodeBlob : IDisposable {
-                private byte[] _data;
-                private GCHandle _dataPointer;
-                private IDxcBlobEncoding? _blob;
-
-                internal IDxcBlob? Blob { get => _blob; }
-
-                public SourceCodeBlob(byte[] data) {
-                    _data = data;
-
-                    _dataPointer = GCHandle.Alloc(data, GCHandleType.Pinned);
-
-                    _blob = DxcCompiler.Utils.CreateBlob(_dataPointer.AddrOfPinnedObject(), data.Length, Vortice.Dxc.Dxc.DXC_CP_UTF8);
-                }
-
-                public void Dispose() {
-                    //_blob?.Dispose();
-                    _blob = null;
-
-                    if (_dataPointer.IsAllocated)
-                        _dataPointer.Free();
-                    _dataPointer = default;
-                }
-            }
         }
     }
 }

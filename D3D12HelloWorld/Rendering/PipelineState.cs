@@ -61,14 +61,14 @@ namespace D3D12HelloWorld.Rendering {
                 PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                 StreamOutput = new StreamOutputDescription()
             };
-            DepthStencilView depthStencilBuffer = commandList.DepthStencilBuffer;
+            DepthStencilView? depthStencilBuffer = commandList.DepthStencilBuffer;
             if (depthStencilBuffer != null) {
                 graphicsPipelineStateDescription.DepthStencilFormat = depthStencilBuffer.Resource.Description.Format;
             }
 
             var array = new Format[commandList.RenderTargets.Length];
             for (int j = 0; j < array.Length; j++) {
-                array[j] = (Format)commandList.RenderTargets[j].Description.Format;
+                array[j] = commandList.RenderTargets[j].Resource.Description.Format;
             }
 
             graphicsPipelineStateDescription.RenderTargetFormats = array;

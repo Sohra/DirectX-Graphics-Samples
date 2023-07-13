@@ -9,11 +9,12 @@ namespace D3D12HelloWorld.Rendering {
         readonly CommandListType mCommandListType;
         readonly ID3D12CommandAllocator mCommandAllocator;
         readonly ID3D12GraphicsCommandList mCommandList;
+        bool mIsCommandListClosed;
         DescriptorAllocator? mShaderResourceViewDescriptorHeap;
         DescriptorAllocator? mSamplerDescriptorHeap;
 
         public DepthStencilView? DepthStencilBuffer { get; private set; }
-        public ID3D12Resource[] RenderTargets { get; private set; } = Array.Empty<ID3D12Resource>();
+        public RenderTargetView[] RenderTargets { get; private set; } = Array.Empty<RenderTargetView>();
 
         public CommandList(GraphicsDevice device, CommandListType commandListType) {
             mDevice = device ?? throw new ArgumentNullException(nameof(device));
@@ -30,6 +31,7 @@ namespace D3D12HelloWorld.Rendering {
 
         public CompiledCommandList Close() {
             mCommandList.Close();
+            mIsCommandListClosed = true;
             return new CompiledCommandList(mCommandList, mCommandAllocator);
         }
 
@@ -61,6 +63,7 @@ namespace D3D12HelloWorld.Rendering {
         public void Reset() {
             mCommandAllocator.Reset();
             mCommandList.Reset(mCommandAllocator, null);
+            mIsCommandListClosed = false;
             SetDescriptorHeaps(mDevice.ShaderVisibleShaderResourceViewAllocator, mDevice.ShaderVisibleSamplerAllocator);
         }
 
@@ -115,6 +118,26 @@ namespace D3D12HelloWorld.Rendering {
             mCommandList.IASetPrimitiveTopology(primitiveTopology);
         }
 
+        public void SetRenderTargets(DepthStencilView? depthStencilView, params RenderTargetView[] renderTargetViews) {
+            DepthStencilBuffer = depthStencilView;
+
+            if (RenderTargets.Length != renderTargetViews.Length) {
+                RenderTargets = new RenderTargetView[renderTargetViews.Length];
+            }
+
+            renderTargetViews.CopyTo(RenderTargets, 0);
+
+            var renderTargetDescriptors = new CpuDescriptorHandle[renderTargetViews.Length];
+
+            for (int i = 0; i < renderTargetViews.Length; i++) {
+                renderTargetDescriptors[i] = renderTargetViews[i].CpuDescriptorHandle;
+            }
+
+            if (!mIsCommandListClosed) {
+                mCommandList.OMSetRenderTargets(renderTargetDescriptors, depthStencilView?.CpuDescriptorHandle);
+            }
+        }
+
         public void SetVertexBuffers(int startSlot, params VertexBufferView[] vertexBufferViews) {
             mCommandList.IASetVertexBuffers(startSlot, vertexBufferViews);
         }
@@ -149,6 +172,5 @@ namespace D3D12HelloWorld.Rendering {
                 mSamplerDescriptorHeap = descriptorHeaps.SingleOrDefault((DescriptorAllocator d) => d.DescriptorHeap.Description.Type == DescriptorHeapType.Sampler);
             }
         }
-
     }
 }

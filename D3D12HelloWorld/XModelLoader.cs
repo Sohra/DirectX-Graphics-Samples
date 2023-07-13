@@ -167,13 +167,11 @@ namespace D3D12HelloWorld {
                 //This is an open template, but the X files we are loading we know will contain a string member representing the texture, so we'll type our class accordingly
                 var textureFilename = materialData.MemberDataObjects.FirstOrDefault(d => d.Identifier == "TextureFilename").Members.First().Trim('"', ';');
 
-                loadedMaterials[materialData.Name] = new Material {
-                    FaceColour = new Vector4(faceColor[0], faceColor[1], faceColor[2], faceColor[3]),
-                    Power = specularColourExponent,
-                    SpecularColour = new Vector3(specularColor[0], specularColor[1], specularColor[2]),
-                    EmissiveColour = new Vector3(emissiveColor[0], emissiveColor[1], emissiveColor[2]),
-                    TextureFilename = textureFilename,
-                };
+                loadedMaterials[materialData.Name] = new Material(new Vector4(faceColor[0], faceColor[1], faceColor[2], faceColor[3]),
+                                                                  specularColourExponent,
+                                                                  new Vector3(specularColor[0], specularColor[1], specularColor[2]),
+                                                                  new Vector3(emissiveColor[0], emissiveColor[1], emissiveColor[2]),
+                                                                  textureFilename);
             }
 
             var frames = new Dictionary<Mesh, Matrix4x4>();
@@ -426,17 +424,16 @@ namespace D3D12HelloWorld {
                     var firstMaterialDefinition = mesh.Materials.Value.Materials.First();
                     var textureFile = new FileInfo(Path.Combine(texturesFolder, firstMaterialDefinition.TextureFilename));
                     if (textureFile.Exists) {
-                        using (FileStream stream = File.OpenRead(textureFile.FullName)) {
-                            Texture2dBuilder textureBuilder = textureFile.Extension switch {
-                                ".dds" => new DdsTexture2dBuilder(mDevice),
-                                ".jpg" => new JpgTexture2dBuilder(mDevice),
-                                _ => throw new NotSupportedException($"Cannot load {textureFile.Extension} images.  Only DDS or JPG supported for use as textures."),
-                            };
+                        using FileStream stream = File.OpenRead(textureFile.FullName);
+                        Texture2dBuilder textureBuilder = textureFile.Extension switch {
+                            ".dds" => new DdsTexture2dBuilder(mDevice),
+                            ".jpg" => new JpgTexture2dBuilder(mDevice),
+                            _ => throw new NotSupportedException($"Cannot load {textureFile.Extension} images.  Only DDS or JPG supported for use as textures."),
+                        };
 
-                            Texture diffuseTexture = textureBuilder.Create2dTexture(stream);
-                            
-                            shader = new TextureShader(diffuseTexture, true);
-                        }
+                        Texture diffuseTexture = textureBuilder.Create2dTexture(stream);
+
+                        shader = new TextureShader(diffuseTexture, true);
                     }
                 }
                 else {
@@ -536,7 +533,7 @@ namespace D3D12HelloWorld {
                             .Select((f, fi) => new { VertexIndices = f, Index = fi })
                             .ToArray();
             i = 0;
-            var normalFaces = (from s in mesh.FaceNormals.Value.FaceVertexIndices
+            var normalFaces = (from s in mesh.FaceNormals.FaceVertexIndices
                                let num = i++
                                group s by num / 3 into g
                                select g.ToArray())
@@ -550,7 +547,7 @@ namespace D3D12HelloWorld {
                                                  })
                                                  .Select(f => { //Lookup the associated normal face to get the normal associated with that face vertex
                                                      var normalIndex = normalFaces[f.FaceIndex].Skip(f.FaceVertexIndex).First();
-                                                     return mesh.FaceNormals.Value.Normals[normalIndex];
+                                                     return mesh.FaceNormals.Normals[normalIndex];
                                                  });
                 //Sum all the associated face normals together
                 var vertexNormal = Vector3.Zero;
@@ -598,28 +595,43 @@ namespace D3D12HelloWorld {
             /// Face colour
             /// </summary>
             /// <remarks>https://docs.microsoft.com/en-us/windows/win32/direct3d9/colorrgba</remarks>
-            public Vector4 FaceColour;
+            public Vector4 FaceColour { get; }
             /// <summary>
             /// Material specular colour exponent
             /// </summary>
-            public float Power;
+            public float Power { get; }
             /// <summary>
             /// Material specular colour
             /// </summary>
             /// <remarks>https://docs.microsoft.com/en-us/windows/win32/direct3d9/colorrgb</remarks>
-            public Vector3 SpecularColour;
+            public Vector3 SpecularColour { get; }
             /// <summary>
             /// Material emissive colour
             /// </summary>
             /// <remarks>https://docs.microsoft.com/en-us/windows/win32/direct3d9/colorrgb</remarks>
-            public Vector3 EmissiveColour;
+            public Vector3 EmissiveColour { get; }
             /// <summary>
             /// This is actually an "open template" and has no restriction on additional data that may be included, but we'll restrict it to containing the texture filename, as that's all we use in the Mutiny model assets
             /// </summary>
             /// <remarks>https://docs.microsoft.com/en-us/windows/win32/direct3d9/texturefilename A42790E1-7810-11cf-8F52-0040333594A3</remarks>
-            public string TextureFilename;
-        };
+            public string TextureFilename { get; }
 
+            /// <summary>
+            ///
+            /// </summary>
+            /// <param name="faceColour"></param>
+            /// <param name="power"></param>
+            /// <param name="specularColour"></param>
+            /// <param name="emissiveColour"></param>
+            /// <param name="textureFilename"></param>
+            public Material(Vector4 faceColour, float power, Vector3 specularColour, Vector3 emissiveColour, string textureFilename) {
+                FaceColour = faceColour;
+                Power = power;
+                SpecularColour = specularColour;
+                EmissiveColour = emissiveColour;
+                TextureFilename = textureFilename;
+            }
+        }
         /// <summary>
         /// https://docs.microsoft.com/en-us/windows/win32/direct3d9/meshnormals
         /// </summary>
@@ -658,7 +670,7 @@ namespace D3D12HelloWorld {
         struct Mesh {
             public Vector3[] Vertices;
             public int[] FaceVertexIndices;
-            public MeshNormals? FaceNormals;
+            public MeshNormals FaceNormals;
             public MeshMaterialList? Materials;
             public Vector2[] TextureCoords;
         }
@@ -716,19 +728,20 @@ namespace D3D12HelloWorld {
     /// Based on https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/shaders.hlsl
     /// </summary>
     class TextureShader : IShader {
-        public TextureShader(Texture texture, bool convertToLinear = false) {
+        public TextureShader(Texture? texture, bool convertToLinear = false) {
             Texture = texture;
             ConvertToLinear = convertToLinear;
+            ColorTexture = null!;
         }
 
         [IgnoreShaderMember]
-        public Texture Texture { get; set; }
+        public Texture? Texture { get; set; }
 
         [IgnoreShaderMember]
         public bool ConvertToLinear { get; set; }
 
         [ShaderMember]
-        public readonly SamplerState Sampler;
+        public readonly SamplerState? Sampler;
 
         [ShaderMember]
         public Texture2D ColorTexture { get; private set; }
@@ -746,7 +759,7 @@ namespace D3D12HelloWorld {
         [ShaderMethod]
         [return: SystemTargetSemantic]
         public Vector4 PSMain(PSTVInput input) {
-            return ColorTexture.Sample(Sampler, input.UV);
+            return ColorTexture.Sample(Sampler!, input.UV);
         }
 
         public void Accept(ShaderGeneratorContext context) {
@@ -755,14 +768,15 @@ namespace D3D12HelloWorld {
 
             //Based on MaterialShader.Accept, which subclassed RasterizationShaderBase
             context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
-            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
+            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
 
-            ColorTexture = new Texture2D(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
-            context.ShaderResourceViews.Add(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
+            var srv = ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format);
+            ColorTexture = new Texture2D(srv);
+            context.ShaderResourceViews.Add(srv);
         }
 
         static Format ToSrgb(Format format) => format switch

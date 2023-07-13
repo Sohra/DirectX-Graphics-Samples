@@ -13,6 +13,7 @@ namespace D3D12HelloWorld.Rendering {
             CopyCommandQueue = new CommandQueue(device, CommandListType.Copy, "Copy Queue");
 
             DepthStencilViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.DepthStencilView, 1);
+            //RenderTargetViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.RenderTargetView, 2);
             ShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096);
             SamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256);
             ShaderVisibleShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096, DescriptorHeapFlags.ShaderVisible);
@@ -32,6 +33,7 @@ namespace D3D12HelloWorld.Rendering {
         public CommandQueue CopyCommandQueue { get; }
 
         public DescriptorAllocator DepthStencilViewAllocator { get; set; }
+        //public DescriptorAllocator RenderTargetViewAllocator { get; set; }
         public DescriptorAllocator ShaderResourceViewAllocator { get; set; }
         public DescriptorAllocator SamplerAllocator { get; set; }
         public DescriptorAllocator ShaderVisibleShaderResourceViewAllocator { get; }
@@ -42,7 +44,16 @@ namespace D3D12HelloWorld.Rendering {
         public void Dispose() {
             CommandList.Dispose();
 
+            ShaderVisibleSamplerAllocator.Dispose();
+            ShaderVisibleShaderResourceViewAllocator.Dispose();
+            SamplerAllocator.Dispose();
+            ShaderResourceViewAllocator.Dispose();
+            //RenderTargetViewAllocator.Dispose();
+            DepthStencilViewAllocator.Dispose();
+
             CopyCommandQueue.Dispose();
+            ComputeCommandQueue.Dispose();
+            DirectCommandQueue.Dispose();
 
             mDevice.Dispose();
         }
