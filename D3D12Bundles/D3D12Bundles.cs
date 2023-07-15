@@ -49,6 +49,8 @@ namespace D3D12Bundles {
             public readonly Vector3 Tangent;
         };
 
+        readonly string mName;
+
         //DXSample - Viewport dimensions
         float mAspectRatio;
 
@@ -108,8 +110,9 @@ namespace D3D12Bundles {
 
             Width = Convert.ToInt32(width);
             Height = Convert.ToInt32(height);
-            if (!string.IsNullOrEmpty(name))
-                Text = name;
+            mName = name;
+            if (!string.IsNullOrEmpty(mName))
+                Text = mName;
 
             mAspectRatio = width / (float)height;
 
@@ -154,8 +157,8 @@ namespace D3D12Bundles {
                 // Update window text with FPS value.
                 var fps = $"{mTimer.FramesPerSecond}fps";
                 //SetCustomWindowText(fps);
-                //Which ultimately calls: SetWindowText($"{Text}: {fps}");
-                Text = $"{Text}: {fps}";
+                //Which ultimately calls: SetWindowText($"{mName}: {fps}");
+                Text = $"{mName}: {fps}";
                 mFrameCounter = 0;
             }
 
