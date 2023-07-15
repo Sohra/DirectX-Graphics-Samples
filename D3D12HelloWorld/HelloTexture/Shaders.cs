@@ -17,17 +17,23 @@ namespace D3D12HelloWorld.HelloTexture
     /// </summary>
     class Shaders
     {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         [ShaderMember]
-        public readonly SamplerState Sampler;
+        public SamplerState Sampler { get; set; }
 
         [ShaderMember]
-        public Texture2D ColorTexture { get; private set; }
+        public Texture2D ColorTexture { get; set; }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         [ShaderMethod]
         public PSInput VSMain([PositionSemantic] Vector4 position, [TextureCoordinateSemantic] Vector2 uv)
         {
             PSInput result;
-            result.Position = position;
+            //With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
+            position.X *= 0.1f;
+            position.Y *= 0.1f;
+            position.Z *= 0.1f;
+            result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
             result.UV = uv;
             return result;
         }

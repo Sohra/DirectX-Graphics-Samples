@@ -2,6 +2,7 @@
 using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -347,7 +348,7 @@ namespace D3D12HelloWorld.HelloTexture {
             // Create the vertex buffer.
             {
                 var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice), @"..\..\..\Mutiny\Models\cannon_boss.X");
-                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model) firstMesh
+                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
                     = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
 
                 mVertexBuffer = firstMesh.VertexBuffer;

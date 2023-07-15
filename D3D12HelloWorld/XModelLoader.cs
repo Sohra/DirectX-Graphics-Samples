@@ -385,8 +385,8 @@ namespace D3D12HelloWorld {
         /// <param name="texturesFolder"></param>
         /// <param name="useTextureCoordinates"></param>
         /// <returns></returns>
-        public async Task<IEnumerable<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model)>> GetFlatShadedMeshesAsync(string texturesFolder, bool useTextureCoordinates) {
-            var meshes = new List<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, Model Model)>();
+        public async Task<IEnumerable<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model)>> GetFlatShadedMeshesAsync(string texturesFolder, bool useTextureCoordinates) {
+            var meshes = new List<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model)>();
 
             foreach (var mesh in mFrames.Keys) {
                 ushort[] faceVertexIndices = mesh.FaceVertexIndices.Select(Convert.ToUInt16).ToArray();
@@ -401,7 +401,8 @@ namespace D3D12HelloWorld {
                 //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
                 //Now passing correct raw vertex buffer instead of a hand-made triangle list....
                 //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationY((float)(Math.PI / 2.0));
-                var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / -2.0));
+
+                var worldMatrix = mFrames[mesh] * Matrix4x4.CreateScale(0.1f);  //For D3D12Bundles, and HelloTexture (with further scaling and translation compensation in its vertex shader)
                 var triangleVertices = mesh.Vertices.Select((f, i) => new FlatShadedVertex(Vector3.Transform(f, worldMatrix), mesh.TextureCoords[i]));
                 byte[] vertexData = triangleVertices.SelectMany(v => BitConverter.GetBytes(v.Position.X)
                                                                                  .Concat(BitConverter.GetBytes(v.Position.Y))
@@ -461,7 +462,7 @@ namespace D3D12HelloWorld {
                 var model = new Model();
                 model.Materials.Add(material);
                 model.Meshes.Add(new Rendering.Mesh(meshDraw) { MaterialIndex = 0, WorldMatrix = primitiveWorldMatrix });
-                meshes.Add((indexBuffer, vertexBuffer, model));
+                meshes.Add((indexBuffer, vertexBuffer, context.ShaderResourceViews, model));
             }
 
             return meshes.AsReadOnly();
@@ -685,9 +686,8 @@ namespace D3D12HelloWorld {
         ///       compiled Vertex Shader's Input parameters - PositionSemanticAttribute and TextureCoordinateSemantic in this case per the VSInput struct
         /// </summary>
         public static readonly InputElementDescription[] InputElements = new[] {
-            new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
-            new InputElementDescription("TexCoord", 0, Format.R32G32_Float, 12, 0, InputClassification.PerVertexData, 0),
-
+            new InputElementDescription("Position", 0, Format.R32G32B32_Float, InputElementDescription.AppendAligned, 0, InputClassification.PerVertexData, 0),
+            new InputElementDescription("TexCoord", 0, Format.R32G32_Float, InputElementDescription.AppendAligned, 0, InputClassification.PerVertexData, 0),
         };
 
         public FlatShadedVertex(in Vector3 position, in Vector2 texCoord) {
@@ -750,7 +750,12 @@ namespace D3D12HelloWorld {
         [ShaderMethod]
         public PSTVInput VSMain([PositionSemantic] Vector4 position, [TextureCoordinateSemantic] Vector2 uv) {
             PSTVInput result;
-            result.Position = position;
+            //result.Position = position;
+            //With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
+            position.X *= 0.1f;
+            position.Y *= 0.1f;
+            position.Z *= 0.1f;
+            result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
             result.UV = uv;
             return result;
         }
@@ -774,9 +779,8 @@ namespace D3D12HelloWorld {
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
 
-            var srv = ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format);
-            ColorTexture = new Texture2D(srv);
-            context.ShaderResourceViews.Add(srv);
+            ColorTexture = new Texture2D(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
+            context.ShaderResourceViews.Add(ColorTexture);
         }
 
         static Format ToSrgb(Format format) => format switch

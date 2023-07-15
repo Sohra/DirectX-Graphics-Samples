@@ -8,7 +8,7 @@ namespace D3D12HelloWorld.HelloTriangle
         [PositionSemantic(0)]
         public Vector4 Position;
         [ColorSemantic(0)]
-        public Vector4 Colour;  //While Vortice.Mathematics.Color4 is more appropriate on the .NET size, this is for HLSL compilation and DirectX12GameEngine.Shaders.HlslKnownTypes is setup to honour Vector4 but not Vortice.Mathematics.Color4.  We could register Color4 perhaps but it probably doesn't make a difference.  knownMethods does map .W to .w so the fact it is stored first in an array of floats shouldn't matter?  Maybe?
+        public Vector4 Colour;  //While Vortice.Mathematics.Color4 is more appropriate on the .NET side, this is for HLSL compilation and DirectX12GameEngine.Shaders.HlslKnownTypes is setup to honour Vector4 but not Vortice.Mathematics.Color4.  We could register Color4 perhaps but it probably doesn't make a difference.  knownMethods does map .W to .w so the fact it is stored first in an array of floats shouldn't matter?  Maybe?
     }
 
     public struct PSInput
