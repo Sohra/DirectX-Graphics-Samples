@@ -276,8 +276,16 @@ namespace D3D12HelloWorld {
 
 
                         ParseVectorAndMeshFaceArrays(meshData.Members, out var vertices, out var faces);
-                        ParseVectorAndMeshFaceArrays(meshData.MemberDataObjects.First(d => d.Identifier == "MeshNormals").Members,
-                                                     out var normals, out var faceNormals);
+                        var meshNormalsData = meshData.MemberDataObjects.Where(d => d.Identifier == "MeshNormals");
+                        MeshNormals? meshNormals = null;
+                        if (meshNormalsData.Any()) {
+                            ParseVectorAndMeshFaceArrays(meshNormalsData.First().Members,
+                                                         out var normals, out var faceNormals);
+                            meshNormals = new MeshNormals {
+                                Normals = normals.Select(f => new Vector3(f.First(), f.Skip(1).First(), f.Skip(2).Single())).ToArray(),
+                                FaceVertexIndices = faceNormals.SelectMany(f => f.FaceVertexIndices).ToArray(),
+                            };
+                        }
                         //https://docs.microsoft.com/en-us/windows/win32/direct3d9/meshtexturecoords <F6F23F40-7686-11cf-8F52-0040333594A3>
                         var meshTexCoordsNextUnparsedLineIndex = 0;
 
@@ -293,10 +301,7 @@ namespace D3D12HelloWorld {
                         var mesh = new Mesh {
                             Vertices = vertices.Select(f => new Vector3(f.First(), f.Skip(1).First(), f.Skip(2).Single())).ToArray(),
                             FaceVertexIndices = faces.SelectMany(f => f.FaceVertexIndices).ToArray(),
-                            FaceNormals = new MeshNormals {
-                                Normals = normals.Select(f => new Vector3(f.First(), f.Skip(1).First(), f.Skip(2).Single())).ToArray(),
-                                FaceVertexIndices = faceNormals.SelectMany(f => f.FaceVertexIndices).ToArray(),
-                            },
+                            FaceNormals = meshNormals,
                             TextureCoords = textureCoords.Select(f => new Vector2(f.First(), f.Skip(1).Single())).ToArray(),
                         };
 
@@ -525,6 +530,10 @@ namespace D3D12HelloWorld {
 
 
         private static Vector3[] GenerateVertexNormals(Mesh mesh) {
+            //Create VertexBuffer for the normal data
+            if (!mesh.FaceNormals.HasValue)
+                throw new InvalidOperationException("No Normal data was found in the model");
+
             var vertexNormals = new Vector3[mesh.Vertices.Length];
             int i = 0;
             var meshFaces = (from s in mesh.FaceVertexIndices
@@ -534,7 +543,7 @@ namespace D3D12HelloWorld {
                             .Select((f, fi) => new { VertexIndices = f, Index = fi })
                             .ToArray();
             i = 0;
-            var normalFaces = (from s in mesh.FaceNormals.FaceVertexIndices
+            var normalFaces = (from s in mesh.FaceNormals.Value.FaceVertexIndices
                                let num = i++
                                group s by num / 3 into g
                                select g.ToArray())
@@ -543,13 +552,13 @@ namespace D3D12HelloWorld {
             for (int meshVertexIndex = 0; meshVertexIndex < vertexNormals.Length; ++meshVertexIndex) {
                 var associatedNormals = meshFaces.Where(f => f.VertexIndices.Contains(meshVertexIndex))
                                                  .Select(f => new { //Select the participating Face indices, and which vertex of the face (0, 1, or 2) it participates in
-                                                     FaceIndex = f.Index,
-                                                     FaceVertexIndex = f.VertexIndices.IndexOf(meshVertexIndex),
-                                                 })
+                                                             FaceIndex = f.Index,
+                                                             FaceVertexIndex = f.VertexIndices.IndexOf(meshVertexIndex),
+                                                         })
                                                  .Select(f => { //Lookup the associated normal face to get the normal associated with that face vertex
-                                                     var normalIndex = normalFaces[f.FaceIndex].Skip(f.FaceVertexIndex).First();
-                                                     return mesh.FaceNormals.Normals[normalIndex];
-                                                 });
+                                                             var normalIndex = normalFaces[f.FaceIndex].Skip(f.FaceVertexIndex).First();
+                                                             return mesh.FaceNormals.Value.Normals[normalIndex];
+                                                         });
                 //Sum all the associated face normals together
                 var vertexNormal = Vector3.Zero;
                 foreach (var normal in associatedNormals) {
@@ -633,6 +642,7 @@ namespace D3D12HelloWorld {
                 TextureFilename = textureFilename;
             }
         }
+
         /// <summary>
         /// https://docs.microsoft.com/en-us/windows/win32/direct3d9/meshnormals
         /// </summary>
@@ -671,7 +681,7 @@ namespace D3D12HelloWorld {
         struct Mesh {
             public Vector3[] Vertices;
             public int[] FaceVertexIndices;
-            public MeshNormals FaceNormals;
+            public MeshNormals? FaceNormals;
             public MeshMaterialList? Materials;
             public Vector2[] TextureCoords;
         }
