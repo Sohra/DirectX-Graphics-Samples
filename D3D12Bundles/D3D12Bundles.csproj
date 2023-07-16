@@ -14,9 +14,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\HelloTriangle\MemoryExtensions.cs" Link="MemoryExtensions.cs" />
-    <Compile Include="..\HelloTriangle\Rendering\*.cs" LinkBase="Rendering" />
-    <Compile Include="..\HelloTriangle\XModelLoader.cs" Link="XModelLoader.cs" />
+    <Compile Include="..\D3D12HelloWorld\MemoryExtensions.cs" Link="MemoryExtensions.cs" />
+    <Compile Include="..\D3D12HelloWorld\Rendering\*.cs" LinkBase="Rendering" />
+    <Compile Include="..\D3D12HelloWorld\XModelLoader.cs" Link="XModelLoader.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -447,9 +447,9 @@ namespace D3D12Bundles {
 
             // Read in mesh data for vertex/index buffers.
             {
-                var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice), @"..\..\..\..\HelloTriangle\Mutiny\Models\cannon_boss.X");
+                var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice), @"..\..\..\..\D3D12HelloWorld\Mutiny\Models\cannon_boss.X");
                 (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
-                    = Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\..\HelloTriangle\Mutiny", false)).Result.First();
+                    = Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\..\D3D12HelloWorld\Mutiny", false)).Result.First();
 
                 mVertexBuffer = firstMesh.VertexBuffer;
                 mVertexBuffer.Name = nameof(mVertexBuffer);
@@ -522,7 +522,7 @@ namespace D3D12Bundles {
             {
                 // Describe and create a Texture2D.
                 ResourceDescription textureDesc;
-                var textureFile = new FileInfo(@"C:\Users\samne\Source\Repos\Sohra\DirectX-Graphics-Samples\HelloTriangle\Mutiny\Textures\CannonBoss_tex.jpg");
+                var textureFile = new FileInfo(@"..\..\..\..\D3D12HelloWorld\Mutiny\Textures\CannonBoss_tex.jpg");
                 if (!textureFile.Exists) {
                     throw new FileNotFoundException($"Could not find file: {textureFile.FullName}");
                 }

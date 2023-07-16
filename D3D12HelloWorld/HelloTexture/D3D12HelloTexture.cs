@@ -394,7 +394,7 @@ namespace D3D12HelloWorld.HelloTexture {
             {
                 // Describe and create a Texture2D.
                 ResourceDescription textureDesc;
-                var textureFile = new FileInfo(@"C:\Users\samne\Source\Repos\Sohra\DirectX-Graphics-Samples\HelloTriangle\Mutiny\Textures\CannonBoss_tex.jpg");
+                var textureFile = new FileInfo(@"..\..\..\Mutiny\Textures\CannonBoss_tex.jpg");
                 if (textureFile.Exists) {
                     using (FileStream stream = File.OpenRead(textureFile.FullName)) {
                         var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
