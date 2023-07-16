@@ -1,4 +1,5 @@
-﻿using DirectX12GameEngine.Shaders;
+﻿using D3D12HelloWorld.Rendering;
+using DirectX12GameEngine.Shaders;
 using System.Numerics;
 
 namespace D3D12HelloWorld.HelloTexture
@@ -16,45 +17,23 @@ namespace D3D12HelloWorld.HelloTexture
     /// </summary>
     class Shaders
     {
-        public Shaders()
-        {
-        }
-
-        //public Shaders(Texture texture, bool convertToLinear = false)
-        //{
-        //    Texture = texture;
-        //    ConvertToLinear = convertToLinear;
-        //}
-
-        //[IgnoreShaderMember]
-        //public Texture Texture { get; set; }
-
-        [IgnoreShaderMember]
-        public bool ConvertToLinear { get; set; }
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
+        [ShaderMember]
+        public SamplerState Sampler { get; set; }
 
         [ShaderMember]
-        public readonly SamplerState Sampler;
+        public Texture2D ColorTexture { get; set; }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
-        [ShaderMember]
-        public Texture2D ColorTexture { get; private set; }
-
-        //[ShaderMethod]
-        //[Shader("vertex")]
-        //public PSInput VSMain(VSInput input)
-        //{
-        //    PSInput result;
-        //    result.Position = input.Position;
-        //    result.UV = input.UV;
-        //    return result;
-        //}
-
-        /**/
-        
         [ShaderMethod]
         public PSInput VSMain([PositionSemantic] Vector4 position, [TextureCoordinateSemantic] Vector2 uv)
         {
             PSInput result;
-            result.Position = position;
+            //With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
+            position.X *= 0.1f;
+            position.Y *= 0.1f;
+            position.Z *= 0.1f;
+            result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
             result.UV = uv;
             return result;
         }
@@ -64,7 +43,6 @@ namespace D3D12HelloWorld.HelloTexture
         public Vector4 PSMain(PSInput input)
         {
             return ColorTexture.Sample(Sampler, input.UV);
-            //return Vector4.One;
         }
     }
 }

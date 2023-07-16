@@ -1,43 +1,23 @@
-﻿using Serilog;
+﻿using D3D12HelloWorld.Rendering;
+using Serilog;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Media;
 using Vortice;
 using Vortice.Direct3D12;
-using Vortice.Dxc;
 using Vortice.DXGI;
 using Vortice.Mathematics;
 
 namespace D3D12HelloWorld.Mutiny {
     public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
-
-        readonly struct Vertex {
-            public static readonly unsafe int SizeInBytes = sizeof(Vertex);
-            /// <summary>
-            /// Defines the vertex input layout.
-            /// NOTE: The HLSL Semantic names here must match the ShaderTypeAttribute.TypeName associated with the ShaderSemanticAttribute associated with the 
-            ///       compiled Vertex Shader's Input parameters - PositionSemanticAttribute and ColorSemanticAttribute in this case per the VSInput struct
-            /// </summary>
-            public static readonly InputElementDescription[] InputElements = new[] {
-                new InputElementDescription("Position", 0, Format.R32G32B32_Float, 0, 0, InputClassification.PerVertexData, 0),
-                new InputElementDescription("Color", 0, Format.R32G32B32A32_Float, 12, 0, InputClassification.PerVertexData, 0),
-            };
-
-            public Vertex(in Vector3 position, in Color4 colour) {
-                Position = position;
-                Colour = colour;
-            }
-
-            public readonly Vector3 Position;
-            public readonly Color4 Colour;
-        };
 
         //Viewport dimensions
         float mAspectRatio;
@@ -50,21 +30,23 @@ namespace D3D12HelloWorld.Mutiny {
         RawRect mScissorRect;
         IDXGISwapChain3 mSwapChain;
         ID3D12Device mDevice;
-        readonly ID3D12Resource[] mRenderTargets;
-        readonly ID3D12CommandAllocator[] mCommandAllocators;
-        ID3D12CommandQueue mCommandQueue;
-        CommandQueue mCopyCommandQueue;
-        ID3D12RootSignature mRootSignature;
-        ID3D12DescriptorHeap mRtvHeap;
-        ID3D12PipelineState mPipelineState;
-        ID3D12GraphicsCommandList mCommandList;
-        int mRtvDescriptorSize;
+        readonly ID3D12CommandAllocator[] mCommandAllocators; //Potentially replaceable if migrating to the higher CommandList abstraction which creates its own allocator
+        ID3D12RootSignature mRootSignature;  //Potentially replaceable by MaterialPass.PipelineState
+        DescriptorAllocator mRtvHeap;
+        DescriptorAllocator mSrvHeap;
+        ID3D12PipelineState mPipelineState;  //Potentially replaceable by mGraphicsDevice
+        ID3D12GraphicsCommandList mCommandList;  //Potentially replaceable by mGraphicsDevice.CommandList, but means we can't reuse mCommandAllocators
+        GraphicsDevice mGraphicsDevice;
 
         // App resources.
+        GraphicsResource mDirectionalLightGroupBuffer;
+        GraphicsResource mGlobalBuffer;
+        GraphicsResource mViewProjectionTransformBuffer;
+        Sampler mDefaultSampler;
         ID3D12Resource mIndexBuffer;
         ID3D12Resource mVertexBuffer;
-        IndexBufferView mIndexBufferView;
-        VertexBufferView mVertexBufferView;
+        IEnumerable<ShaderResourceView> mShaderResourceViews;
+        Model mModel;
 
         // Synchronization objects.
         int mFrameIndex;
@@ -90,17 +72,16 @@ namespace D3D12HelloWorld.Mutiny {
 
             mViewport = new Viewport(width, height);
             mScissorRect = new RawRect(0, 0, Width, Height);
-            mRenderTargets = new ID3D12Resource[FrameCount];
             mCommandAllocators = new ID3D12CommandAllocator[FrameCount];
             mFenceValues = new ulong[FrameCount];
 
             OnInit();
 
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
-            this.FormClosing += (object sender, FormClosingEventArgs e) => OnDestroy();
+            this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
 
-        private void HandleCompositionTarget_Rendering(object sender, EventArgs e) {
+        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
             lock (mTickLock) {
                 OnUpdate();
 
@@ -111,6 +92,14 @@ namespace D3D12HelloWorld.Mutiny {
         public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
+
+            //mDirectionalLightGroupBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, sizeof(int) + System.Runtime.CompilerServices.Unsafe.SizeOf<DirectionalLightData>() * MaxLights, ResourceFlags.None, HeapType.Upload);
+            //mGlobalBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, System.Runtime.CompilerServices.Unsafe.SizeOf<GlobalBuffer>(), ResourceFlags.None, HeapType.Upload);
+            //mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, System.Runtime.CompilerServices.Unsafe.SizeOf<StereoViewProjectionTransform>(), ResourceFlags.None, HeapType.Upload);
+            mDirectionalLightGroupBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
+            mGlobalBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
+            mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
+            mDefaultSampler = new Sampler(mDevice, mGraphicsDevice.SamplerAllocator);
         }
 
         /// <summary>
@@ -131,7 +120,14 @@ namespace D3D12HelloWorld.Mutiny {
             PopulateCommandList();
 
             // Execute the command list.
-            mCommandQueue.ExecuteCommandList(mCommandList);
+            //Problem with using the higher level abstraction is that it does more than just execute the command list,
+            //it also schedules a Signal command in the queue and increments the fence value for the next frame, and then waits for the GPU to complete.
+            //The DirectX12GameEngine would next present the frame to the screen...
+            //This differs from HelloTexture in that the command list would be executed (writing to the back buffer) and the previous frame would be presented
+            //and then it would similarly schedule a Signal command in the queue, update the frame index to the current back buffer,
+            //wait for the next frame to be rendered, and then increment the fence value for the next frame.
+            //mGraphicsDevice.CommandList.Flush();
+            mGraphicsDevice.DirectCommandQueue.ExecuteCommandList(mCommandList);
             Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Direct Command list submitted to GPU for execution. Frame index: {mFrameIndex} with fence value {fenceValue}",
                              nameof(OnRender), mFrameIndex, mFenceValues[mFrameIndex]);
 
@@ -159,25 +155,23 @@ namespace D3D12HelloWorld.Mutiny {
 
             for (int i = 0; i < mCommandAllocators.Length; i++) {
                 mCommandAllocators[i].Dispose();
-                mRenderTargets[i].Dispose();
+                mGraphicsDevice.CommandList.RenderTargets[i].Resource.Dispose();
             }
             mCommandList.Dispose();
+            mGraphicsDevice.Dispose();
 
             mFenceEvent.Dispose();
-            //Replacing CloseHandle(mFenceEvent);
 
             mRtvHeap.Dispose();
             mSwapChain.Dispose();
-            mCommandQueue.Dispose();
-            mCopyCommandQueue.Dispose();
 
             mDevice.Dispose();
             //mFactory.Dispose();
 
 #if DEBUG
-            if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIDebug1 dxgiDebug).Success) {
+            if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIDebug1? dxgiDebug).Success) {
                 dxgiDebug!.ReportLiveObjects(DXGI.DebugAll, Vortice.DXGI.Debug.ReportLiveObjectFlags.Summary | Vortice.DXGI.Debug.ReportLiveObjectFlags.IgnoreInternal);
-                dxgiDebug!.Dispose();
+                dxgiDebug.Dispose();
             }
 #endif
         }
@@ -192,7 +186,7 @@ namespace D3D12HelloWorld.Mutiny {
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             // NOTE: Enabling the debug layer after device creation will invalidate the active device.
             {
-                if (D3D12.D3D12GetDebugInterface(out Vortice.Direct3D12.Debug.ID3D12Debug debugController).Success) {
+                if (D3D12.D3D12GetDebugInterface(out Vortice.Direct3D12.Debug.ID3D12Debug? debugController).Success) {
                     //Doesn't implement this interface....
                     //ID3D12InfoQueue debug = debugController.QueryInterface<ID3D12InfoQueue>();
                     //if (debug != null) {
@@ -202,7 +196,7 @@ namespace D3D12HelloWorld.Mutiny {
 
                     //ID3D12Debug1 debug = debugController.QueryInterface<ID3D12Debug1>();
                     //debug.EnableDebugLayer();
-                    debugController.EnableDebugLayer();
+                    debugController!.EnableDebugLayer();
                     debugController.Dispose();
 
                     // Enable additional debug layers.
@@ -212,9 +206,9 @@ namespace D3D12HelloWorld.Mutiny {
                     System.Diagnostics.Debug.WriteLine("WARNING: Direct3D Debug Device is not available");
                 }
 
-                if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIInfoQueue dxgiInfoQueue).Success) {
-                    dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Error, true);
-                    dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Corruption, true);
+                if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIInfoQueue? dxgiInfoQueue).Success) {
+                    dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Error, false);
+                    dxgiInfoQueue.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Corruption, true);
 
                     var hide = new int[] {
                         80 /* IDXGISwapChain::GetContainingOutput: The swapchain's adapter does not control the output on which the swapchain's window resides. */,
@@ -224,23 +218,23 @@ namespace D3D12HelloWorld.Mutiny {
                             Ids = hide
                         }
                     };
-                    dxgiInfoQueue!.AddStorageFilterEntries(DXGI.DebugDxgi, filter);
+                    dxgiInfoQueue.AddStorageFilterEntries(DXGI.DebugDxgi, filter);
                     dxgiInfoQueue.Dispose();
                 }
             }
 #endif
 
-            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4 factory);
+            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4? factory).CheckError();
 
             if (mUseWarpDevice) {
-                Result warpResult = factory.EnumWarpAdapter(out IDXGIAdapter warpAdapter);
+                Result warpResult = factory!.EnumWarpAdapter(out IDXGIAdapter? warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
                 mDevice = D3D12.D3D12CreateDevice<ID3D12Device>(warpAdapter, Vortice.Direct3D.FeatureLevel.Level_11_0);
             }
             else {
-                IDXGIAdapter1 hardwareAdapter = null;
+                IDXGIAdapter1? hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
                 //GetHardwareAdapter(factory.Get(), &hardwareAdapter);  
@@ -254,7 +248,7 @@ namespace D3D12HelloWorld.Mutiny {
                 using Vortice.Direct3D12.Debug.ID3D12InfoQueue? d3dInfoQueue = mDevice.QueryInterfaceOrNull<Vortice.Direct3D12.Debug.ID3D12InfoQueue>();
                 if (d3dInfoQueue != null) {
                     d3dInfoQueue!.SetBreakOnSeverity(Vortice.Direct3D12.Debug.MessageSeverity.Corruption, true);
-                    d3dInfoQueue!.SetBreakOnSeverity(Vortice.Direct3D12.Debug.MessageSeverity.Error, true);
+                    d3dInfoQueue!.SetBreakOnSeverity(Vortice.Direct3D12.Debug.MessageSeverity.Error, false);
                     var hide = new Vortice.Direct3D12.Debug.MessageId[] {
                         Vortice.Direct3D12.Debug.MessageId.MapInvalidNullRange,
                         Vortice.Direct3D12.Debug.MessageId.UnmapInvalidNullRange,
@@ -276,56 +270,54 @@ namespace D3D12HelloWorld.Mutiny {
             //12_1
             //var featureLevel = mDevice.CheckMaxSupportedFeatureLevel();
 
-            // Describe and create the command queue.
-            mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
-            mCommandQueue.Name = "Direct Queue";
-            mCopyCommandQueue = new CommandQueue(mDevice, CommandListType.Copy, "Copy Queue");
+            //Rather than just a command queue, use the GraphicsDevice abstraction which creates CommandQueues and the CommandList, and an associated CommandAllocator
+            mGraphicsDevice = new GraphicsDevice(mDevice);
 
             // Describe and create the swap chain.
+            var backBufferFormat = Format.R8G8B8A8_UNorm;
             var swapChainDesc = new SwapChainDescription1 {
                 BufferCount = FrameCount,
                 Width = Width,
                 Height = Height,
-                Format = Format.R8G8B8A8_UNorm,
+                Format = backBufferFormat,
                 BufferUsage = Usage.RenderTargetOutput,
                 SwapEffect = SwapEffect.FlipDiscard,
-                SampleDescription = new SampleDescription(1, 0),
+                SampleDescription = SampleDescription.Default,
                 //AlphaMode = AlphaMode.Ignore,
             };
 
             // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
+            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mGraphicsDevice.DirectCommandQueue.NativeCommandQueue, base.Handle, swapChainDesc);
             //factory.MakeWindowAssociation(base.Handle, WindowAssociationFlags.IgnoreAltEnter);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
-                // Describe and create a render target view (RTV) descriptor heap.
-                var rtvHeapDesc = new DescriptorHeapDescription {
-                    DescriptorCount = FrameCount,
-                    Type = DescriptorHeapType.RenderTargetView,
-                    Flags = DescriptorHeapFlags.None,
-                };
-                mRtvHeap = mDevice.CreateDescriptorHeap(rtvHeapDesc);
+                //if (mGraphicsDevice.RenderTargetViewAllocator.DescriptorHeap.Description.DescriptorCount != FrameCount) {
+                //    mGraphicsDevice.RenderTargetViewAllocator.Dispose();
+                //    mGraphicsDevice.RenderTargetViewAllocator = new DescriptorAllocator(mDevice, DescriptorHeapType.RenderTargetView, FrameCount);
+                //}
 
-                mRtvDescriptorSize = mDevice.GetDescriptorHandleIncrementSize(DescriptorHeapType.RenderTargetView);  //Or mRtvHeap.Description.Type
+                mRtvHeap = new DescriptorAllocator(mDevice, DescriptorHeapType.RenderTargetView, FrameCount);
+
+                mSrvHeap = new DescriptorAllocator(mDevice, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 1, DescriptorHeapFlags.ShaderVisible);
             }
 
             // Create frame resources.
             {
-                CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart();
-
                 // Create a RTV and a command allocator for each frame.
+                var renderTargets = new RenderTargetView[FrameCount];
                 for (int n = 0; n < swapChainDesc.BufferCount; n++) {
-                    mRenderTargets[n] = mSwapChain.GetBuffer<ID3D12Resource>(n);
+                    var renderTargetTexture = new Texture(mGraphicsDevice, mSwapChain.GetBuffer<ID3D12Resource>(n));
+                    renderTargets[n] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap, backBufferFormat);
 
-                    mDevice.CreateRenderTargetView(mRenderTargets[n], null, rtvHandle);
-                    rtvHandle += 1 * mRtvDescriptorSize;
 
                     mCommandAllocators[n] = mDevice.CreateCommandAllocator(CommandListType.Direct);
                     mCommandAllocators[n].Name = $"Direct Allocator {n}";
                 }
+
+                mGraphicsDevice.CommandList.SetRenderTargets(null, renderTargets);  //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly
             }
         }
 
@@ -333,87 +325,102 @@ namespace D3D12HelloWorld.Mutiny {
         /// Load the sample assets
         /// </summary>
         void LoadAssets() {
+            // Create the root signature.
             {
-                var rootSignatureDesc = new RootSignatureDescription1 {
-                    Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
+                var highestVersion = mDevice.CheckHighestRootSignatureVersion(RootSignatureVersion.Version11);
+                var sampler = new StaticSamplerDescription {
+                    Filter = Filter.MinMagMipPoint,
+                    AddressU = TextureAddressMode.Border,
+                    AddressV = TextureAddressMode.Border,
+                    AddressW = TextureAddressMode.Border,
+                    MipLODBias = 0,
+                    MaxAnisotropy = 0,
+                    ComparisonFunction = ComparisonFunction.Never,
+                    BorderColor = StaticBorderColor.TransparentBlack,
+                    MinLOD = 0.0f,
+                    MaxLOD = 0.0f,
+                    ShaderRegister = 0,
+                    RegisterSpace = 0,
+                    ShaderVisibility = ShaderVisibility.Pixel,
                 };
-                //mRootSignature = mDevice.CreateRootSignature(0, new VersionedRootSignatureDescription(rootSignatureDesc));
-                mRootSignature = mDevice.CreateRootSignature(rootSignatureDesc);
+                VersionedRootSignatureDescription rootSignatureDesc;
+                switch (highestVersion) {
+                    case RootSignatureVersion.Version11:
+                        var range1 = new DescriptorRange1(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1, DescriptorRangeFlags.DataStatic); //I guess the -1 offset corresponds to D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND but have yet to successfully confirm it
+                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription1 {
+                            Parameters = new[] { new RootParameter1(new RootDescriptorTable1(range1), ShaderVisibility.Pixel) },
+                            StaticSamplers = new[] { sampler },
+                            Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
+                        });
+                        break;
+
+                    case RootSignatureVersion.Version10:
+                    default:
+                        var range = new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1); //I guess the -1 offset corresponds to D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND but have yet to successfully confirm it
+                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription {
+                            Parameters = new[] { new RootParameter(new RootDescriptorTable(range), ShaderVisibility.Pixel) },
+                            StaticSamplers = new[] { sampler },
+                            Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
+                        });
+                        break;
+                }
+                mRootSignature = mDevice.CreateRootSignature(0, rootSignatureDesc);
             }
 
             // Create the pipeline state, which includes compiling and loading shaders.
             {
-                //var shader = new HelloTriangle.Shaders();
-                //var shaderGenerator = new ShaderGenerator(shader);
-                //ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                //ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                //ReadOnlyMemory<byte> pixelShader = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
-                ReadOnlyMemory<byte> vertexShader = CompileBytecode(DxcShaderStage.Vertex, "HelloTriangleShaders.hlsl", "VSMain");
-                ReadOnlyMemory<byte> pixelShader = CompileBytecode(DxcShaderStage.Pixel, "HelloTriangleShaders.hlsl", "PSMain");
+                // Compile .NET to HLSL
+                var shader = new HelloTexture.Shaders();
+                var shaderGenerator = new DirectX12GameEngine.Shaders.ShaderGenerator(shader);
+                DirectX12GameEngine.Shaders.ShaderGeneratorResult result = shaderGenerator.GenerateShader();
+                ReadOnlyMemory<byte> vertexShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
+                ReadOnlyMemory<byte> pixelShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
 
                 // Describe and create the graphics pipeline state object (PSO).
                 var psoDesc = new GraphicsPipelineStateDescription {
-                    InputLayout = new InputLayoutDescription(Vertex.InputElements),
+                    InputLayout = new InputLayoutDescription(FlatShadedVertex.InputElements),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
                     PixelShader = pixelShader,
                     RasterizerState = RasterizerDescription.CullNone, //I think this corresponds to CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT)
-                    //BlendState = BlendDescription.AlphaBlend,  //This is what DX12GE uses
                     //BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
                     BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
-                    //DepthStencilState = DepthStencilDescription.None,  //Default value is DepthStencilDescription.Default
+                    DepthStencilState = DepthStencilDescription.None,  //Default value is DepthStencilDescription.Default
                     SampleMask = uint.MaxValue, //This is the default value anyway...
                     PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                     RenderTargetFormats = new[] { Format.R8G8B8A8_UNorm, },
-                    SampleDescription = SampleDescription.Default,  //This is the default value anyway...
+                    SampleDescription = SampleDescription.Default,
                 };
                 mPipelineState = mDevice.CreateGraphicsPipelineState(psoDesc);
             }
 
             // Create the command list.
             mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], mPipelineState);
+            //mCommandList = mDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocators[mFrameIndex], null);
             mCommandList.Name = "Direct Command List";
 
             // Command lists are created in the recording state, but there is nothing
             // to record yet. The main loop expects it to be closed, so close it now.
             mCommandList.Close();
 
-            //// Create the vertex buffer.
-            //{
-            //    // Define the geometry for a triangle.
-            //    var triangleVertices = new[] {
-            //        new Vertex(new Vector3(0.0f, 0.25f * mAspectRatio, 0.0f), new Color4(1.0f, 0.0f, 0.0f, 1.0f)),
-            //        new Vertex(new Vector3(0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 1.0f, 0.0f, 1.0f)),
-            //        new Vertex(new Vector3(-0.25f, -0.25f * mAspectRatio, 0.0f), new Color4(0.0f, 0.0f, 1.0f, 1.0f)),
-            //    };
-
-            //    int vertexBufferSize = triangleVertices.Length * Vertex.SizeInBytes;
-
-            //    // Note: using upload heaps to transfer static data like vert buffers is not 
-            //    // recommended. Every time the GPU needs it, the upload heap will be marshalled 
-            //    // over. Please read up on Default Heap usage. An upload heap is used here for 
-            //    // code simplicity and because there are very few verts to actually transfer.
-            //    mVertexBuffer = mDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-            //                                                    ResourceDescription.Buffer(vertexBufferSize), ResourceStates.GenericRead, null);
-
-            //    // Copy the triangle data to the vertex buffer.
-            //    mVertexBuffer.SetData(triangleVertices);
-
-            //    // Initialize the vertex buffer view.
-            //    mVertexBufferView.BufferLocation = mVertexBuffer.GPUVirtualAddress;
-            //    mVertexBufferView.StrideInBytes = Vertex.SizeInBytes;
-            //    mVertexBufferView.SizeInBytes = vertexBufferSize;
-            //}
-
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
-                var modelLoader = XModelLoader.Create3(mDevice, mCopyCommandQueue, @"..\..\..\Mutiny\Models\cannon_boss.X");
-                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IndexBufferView IndexBufferView, VertexBufferView VertexBufferView, Matrix4x4 WorldMatrix, ID3D12PipelineState PipelineState) firstMesh
-                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny\Textures", false)).Result.First();
+                var modelLoader = XModelLoader.Create3(mGraphicsDevice, @"..\..\..\Mutiny\Models\cannon_boss.X");
+                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
+                    = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
                 mIndexBuffer = firstMesh.IndexBuffer;
                 mVertexBuffer = firstMesh.VertexBuffer;
-                mIndexBufferView = firstMesh.IndexBufferView;
-                mVertexBufferView = firstMesh.VertexBufferView;
+                mModel = firstMesh.Model;
+                mShaderResourceViews = firstMesh.ShaderResourceViews;
+
+                //mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mShaderResourceViews.First().Resource.NativeResource, ResourceStates.Common, ResourceStates.PixelShaderResource));
+                //Upload texture data to the GPU
+                //TODO:
+                //CpuDescriptorHandle destinationDescriptor = mSrvHeap!.Allocate(1);
+                //mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mModel.Materials.First().ShaderResourceViewDescriptorSet!.StartCpuDescriptorHandle, mSrvHeap.DescriptorHeap.Description.Type);
+                //GpuDescriptorHandle gpuDescriptor = mSrvHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                //mGraphicsDevice.CopyCommandQueue.ExecuteCommandList
+
             }
 
             // Create synchronization objects and wait until assets have been uploaded to the GPU.
@@ -432,7 +439,13 @@ namespace D3D12HelloWorld.Mutiny {
             }
         }
 
-        void PopulateCommandList() {
+        void PopulateCommandList()
+        {
+            var descriptorHeaps = new[] { mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator, mGraphicsDevice.ShaderVisibleSamplerAllocator };
+            var srvDescriptorHeap = descriptorHeaps.SingleOrDefault(d => d.DescriptorHeap.Description.Type == DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+            var samplerDescriptorHeap = descriptorHeaps.SingleOrDefault(d => d.DescriptorHeap.Description.Type == DescriptorHeapType.Sampler);
+
+
             // Command list allocators can only be reset when the associated 
             // command lists have finished execution on the GPU; apps should use 
             // fences to determine GPU execution progress.
@@ -444,37 +457,201 @@ namespace D3D12HelloWorld.Mutiny {
             // list, that command list can then be reset at any time and must be before 
             // re-recording.
             Log.Logger.Write(Serilog.Events.LogEventLevel.Verbose, "Resetting command list for frame {mFrameIndex}", mFrameIndex);
-            mCommandList.Reset(commandAllocator, mPipelineState);
+            //mCommandList.Reset(commandAllocator, mPipelineState);
+            mCommandList.Reset(commandAllocator, null);
 
             // Set necessary state.
-            mCommandList.SetGraphicsRootSignature(mRootSignature);
-            mCommandList.RSSetViewports(mViewport);
-            mCommandList.RSSetScissorRects(mScissorRect);
+            //mCommandList.SetGraphicsRootSignature(mRootSignature);  //Not set by CommandList, but by RenderSystem when looping through the meshes, after setting index and vertext buggers, before the primitive topology
+            //mCommandList.SetDescriptorHeaps(1, new[] { mSrvHeap.DescriptorHeap });
+            //If shader visible to start with...
+            //D3D12 ERROR: CGraphicsCommandList::SetGraphicsRootDescriptorTable: Specified GPU Descriptor Handle (ptr = 0x215685a1090 at 0 offsetInDescriptorsFromDescriptorHeapStart), for Root Signature (0x000002156D6874F0:'Unnamed ID3D12RootSignature Object')'s Descriptor Table (at Parameter Index [0])'s Descriptor Range (at Range Index [0] of type D3D12_DESCRIPTOR_RANGE_TYPE_SRV) has not been initialized. All descriptors of descriptor ranges declared STATIC (not-DESCRIPTORS_VOLATILE) in a root signature must be initialized prior to being set on the command list. [ EXECUTION ERROR #646: INVALID_DESCRIPTOR_HANDLE]
+            //mCommandList.SetGraphicsRootDescriptorTable(0, mSrvHeap.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
+
+            //If not shader visible, need to copy to shader visible... where mSrvHeap.DescriptorHeap.GetCPUDescriptorHandleForHeapStart() would
+            //represent the descriptor created on a non-shader visible heap, and mSrvHeap!.Allocate(1) and mSrvHeap.GetGpuDescriptorHandle(destinationDescriptor)
+            //would be the shader-visible allocator...  If they are the same as right one, once can expect an error:
+            //D3D12 ERROR: ID3D12Device::CopyDescriptorsSimple: Source ranges and dest ranges overlap, which results in undefined behavior. [ EXECUTION ERROR #653: COPY_DESCRIPTORS_INVALID_RANGES]
+            //CpuDescriptorHandle destinationDescriptor = mSrvHeap!.Allocate(1);
+            //mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mModel.Materials.First().ShaderResourceViewDescriptorSet!.StartCpuDescriptorHandle, mSrvHeap.DescriptorHeap.Description.Type);
+            //GpuDescriptorHandle gpuDescriptor = mSrvHeap.GetGpuDescriptorHandle(destinationDescriptor);
+            //mCommandList.SetGraphicsRootDescriptorTable(0, gpuDescriptor);
+
+
+            mCommandList.SetDescriptorHeaps(descriptorHeaps.Length, descriptorHeaps.Select(d => d.DescriptorHeap).ToArray());  //Performed by CommandList.Reset
+            //mCommandList.SetGraphicsRootDescriptorTable(0, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
+            //mCommandList.SetGraphicsRootDescriptorTable(1, mGraphicsDevice.ShaderVisibleSamplerAllocator.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
+            mCommandList.RSSetViewports(mViewport);  //Set during CommandList.ClearState
+            mCommandList.RSSetScissorRects(mScissorRect);  //Set during CommandList.ClearState
 
             // Indicate that the back buffer will be used as a render target.
-            var backBufferRenderTarget = mRenderTargets[mFrameIndex];
-            mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.Present, ResourceStates.RenderTarget));
+            var backBufferRenderTarget = mGraphicsDevice.CommandList.RenderTargets[mFrameIndex];
+            mCommandList.ResourceBarrierTransition(backBufferRenderTarget.Resource.NativeResource, ResourceStates.Present, ResourceStates.RenderTarget);
 
-            CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart() + mFrameIndex * mRtvDescriptorSize;
-            mCommandList.OMSetRenderTargets(rtvHandle, null);
+            CpuDescriptorHandle rtvHandle = mRtvHeap.AllocateSlot(mFrameIndex);
+            //mGraphicsDevice.CommandList.SetRenderTargets(null, rtvHandle);  //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly
+            mCommandList.OMSetRenderTargets(rtvHandle, null);  //Set during CommandList.ClearState
 
             // Record commands.
             var clearColor = new Vortice.Mathematics.Color(0, Convert.ToInt32(0.2f * 255.0f), Convert.ToInt32(0.4f * 255.0f), 255);
-            mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
-            mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-            mCommandList.IASetIndexBuffer(mIndexBufferView);
-            mCommandList.IASetVertexBuffers(0, mVertexBufferView);
-            //mCommandList.SetGraphicsRootConstantBufferView(0, ViewProjectionTransformBuffer);
-            //(mIndexBufferView.SizeInBytes / mIndexBufferView.Format.SizeOfInBytes() comes out at 11295, rather than 3765...
-            //maybe need to take into account the fact it is triangles, divide by three?  I don't see how the DirectX12GameEngine handled this
-            //DrawIndexedInstanced(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
-            //2022-12-04 Update, no more SizeOfInBytes method, instead we have GetBitsPerPixel, so rightshift by 3 (or divide by 8)
-            mCommandList.DrawIndexedInstanced(mIndexBufferView.SizeInBytes / (mIndexBufferView.Format.GetBitsPerPixel() >> 3) / 3, 1, 0, 0, 0);
+            mCommandList.ClearRenderTargetView(rtvHandle, clearColor);  //MyGame.BeginDraw
+            //mCommandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+
+            var meshCount = mModel.Meshes.Count;
+            var worldMatrixBuffers = new GraphicsResource[meshCount];
+            for (int meshIndex = 0; meshIndex < meshCount; meshIndex++)
+            {
+                worldMatrixBuffers[meshIndex] = GraphicsResource.CreateBuffer(mGraphicsDevice, 1 * Unsafe.SizeOf<Matrix4x4>(), ResourceFlags.None, HeapType.Upload);
+
+                //If using bundles, this would be done after recording the commands
+                worldMatrixBuffers[meshIndex].SetData(mModel.Meshes[meshIndex].WorldMatrix, 0);
+            }
+
+            RecordCommandList(mModel, mCommandList, srvDescriptorHeap, samplerDescriptorHeap, worldMatrixBuffers, 1);
+            //var bundleCommandList = new CommandList(mGraphicsDevice, CommandListType.Bundle);
+            //RecordCommandList(mModel, bundleCommandList, worldMatrixBuffers, 1);
 
             // Indicate that the back buffer will now be used to present.
-            mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(backBufferRenderTarget, ResourceStates.RenderTarget, ResourceStates.Present));
+            mCommandList.ResourceBarrierTransition(backBufferRenderTarget.Resource.NativeResource, ResourceStates.RenderTarget, ResourceStates.Present);
 
             mCommandList.Close();
+        }
+
+        private void RecordCommandList(Model model, ID3D12GraphicsCommandList commandList, DescriptorAllocator? srvDescriptorHeap, DescriptorAllocator? samplerDescriptorHeap, GraphicsResource[] worldMatrixBuffers, int instanceCount)
+        {
+            int renderTargetCount = 1; //We don't do stereo so this is always 1
+            instanceCount *= renderTargetCount;
+
+            for (int meshIndex = 0; meshIndex < model.Meshes.Count; meshIndex++)
+            {
+                var mesh = model.Meshes[meshIndex];
+                var material = model.Materials[mesh.MaterialIndex];
+
+                commandList.IASetIndexBuffer(mesh.MeshDraw.IndexBufferView);
+                commandList.IASetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
+
+                //CommandList.SetPipelineState(material.PipelineState) performs:
+                if (material.PipelineState!.IsCompute)
+                {
+                    commandList.SetComputeRootSignature(material.PipelineState.RootSignature);
+                }
+                else
+                {
+                    commandList.SetGraphicsRootSignature(material.PipelineState.RootSignature);
+                }
+                commandList.SetPipelineState(material.PipelineState.NativePipelineState);
+
+                commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+
+                int rootParameterIndex = 0;
+                /*commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);*/
+
+                /*//commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  CpuDescriptorHandle destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mGlobalBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  GpuDescriptorHandle gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                  //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mViewProjectionTransformBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                  //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mWorldMatrixBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, worldMatrixBuffers[meshIndex].DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+
+                  //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
+                  //long gpuDescriptor = CopyDescriptors(srvDescriptorHeap, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, 1);
+                  destinationDescriptor = srvDescriptorHeap!.Allocate(1);
+                  mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDirectionalLightGroupBuffer.DefaultConstantBufferView.CpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                  gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                  commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                */
+
+                //commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
+                //long gpuDescriptor = CopyDescriptors(samplerDescriptorHeap, mDefaultSampler.CpuDescriptorHandle, 1);
+                /*CpuDescriptorHandle destinationDescriptor = samplerDescriptorHeap!.Allocate(1);
+                mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mDefaultSampler.CpuDescriptorHandle, samplerDescriptorHeap.DescriptorHeap.Description.Type);
+                GpuDescriptorHandle gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);*/
+
+                if (material.ShaderResourceViewDescriptorSet != null) {
+                    //commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.ShaderResourceViewDescriptorSet);
+                    //SetGraphicsRootDescriptorTable(rootParameterIndex, srvDescriptorHeap, material.ShaderResourceViewDescriptorSet.StartCpuDescriptorHandle, material.ShaderResourceViewDescriptorSet.DescriptorCapacity);
+                    //GpuDescriptorHandle value = CopyDescriptors(srvDescriptorHeap, material.ShaderResourceViewDescriptorSet.StartCpuDescriptorHandle, material.ShaderResourceViewDescriptorSet.DescriptorCapacity);
+                    CpuDescriptorHandle destinationDescriptor = srvDescriptorHeap!.Allocate(material.ShaderResourceViewDescriptorSet.DescriptorCapacity);
+                    mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(material.ShaderResourceViewDescriptorSet.DescriptorCapacity, destinationDescriptor, material.ShaderResourceViewDescriptorSet.StartCpuDescriptorHandle, srvDescriptorHeap.DescriptorHeap.Description.Type);
+                    GpuDescriptorHandle gpuDescriptor = srvDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, gpuDescriptor);
+                }
+
+                /*if (material.SamplerDescriptorSet != null) {
+                    //commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
+                    //SetGraphicsRootDescriptorTable(rootParameterIndex, samplerDescriptorHeap, material.SamplerDescriptorSet.StartCpuDescriptorHandle, material.SamplerDescriptorSet.DescriptorCapacity);
+                    //GpuDescriptorHandle value = CopyDescriptors(samplerDescriptorHeap, material.SamplerDescriptorSet.StartCpuDescriptorHandle, material.SamplerDescriptorSet.DescriptorCapacity);
+                    destinationDescriptor = samplerDescriptorHeap.Allocate(material.SamplerDescriptorSet.DescriptorCapacity);
+                    mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(material.SamplerDescriptorSet.DescriptorCapacity, destinationDescriptor, material.SamplerDescriptorSet.StartCpuDescriptorHandle, samplerDescriptorHeap.DescriptorHeap.Description.Type);
+                    gpuDescriptor = samplerDescriptorHeap.GetGpuDescriptorHandle(destinationDescriptor);
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex, gpuDescriptor);
+                }*/
+
+                if (mesh.MeshDraw.IndexBufferView != null) {
+                    commandList.DrawIndexedInstanced(mesh.MeshDraw.IndexBufferView.Value.SizeInBytes / (mesh.MeshDraw.IndexBufferView.Value.Format.GetBitsPerPixel() >> 3), instanceCount, 0, 0, 0);
+                }
+                else {
+                    var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
+                    commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount, 0, 0);
+                }
+            }
+        }
+
+        private void RecordCommandList(Model model, CommandList commandList, GraphicsResource[] worldMatrixBuffers, int instanceCount)
+        {
+            int renderTargetCount = 1; //We don't do stereo so this is always 1
+            instanceCount *= renderTargetCount;
+
+            for (int meshIndex = 0; meshIndex < model.Meshes.Count(); meshIndex++)
+            {
+                var mesh = model.Meshes[meshIndex];
+                var material = model.Materials[mesh.MaterialIndex];
+
+                //commandList.SetIndexBuffer(mesh.MeshDraw.IndexBufferView);
+                commandList.SetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
+
+                commandList.SetPipelineState(material.PipelineState!);
+                commandList.SetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+
+                int rootParameterIndex = 0;
+                commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
+
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[meshIndex].DefaultConstantBufferView);
+                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
+                commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
+
+                if (material.ShaderResourceViewDescriptorSet != null) {
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.ShaderResourceViewDescriptorSet);
+                }
+
+                if (material.SamplerDescriptorSet != null) {
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
+                }
+
+                if (mesh.MeshDraw.IndexBufferView != null) {
+                    commandList.DrawIndexedInstanced(mesh.MeshDraw.IndexBufferView.Value.SizeInBytes / (mesh.MeshDraw.IndexBufferView.Value.Format.GetBitsPerPixel() >> 3), instanceCount);
+                }
+                else {
+                    var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
+                    commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount);
+                }
+            }
         }
 
         // Wait for pending GPU work to complete.
@@ -484,7 +661,8 @@ namespace D3D12HelloWorld.Mutiny {
                              nameof(WaitForGpu), requiredFenceValue, mFrameIndex);
 
             // Schedule a Signal command in the queue.
-            mCommandQueue.Signal(mFence, requiredFenceValue);
+            //TODO: Work out how to change this to remove dependency on internal member: NativeCommandQueue
+            mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, requiredFenceValue);
 
             // Wait until the fence has been processed.
             mFenceEvent.Reset();
@@ -504,7 +682,8 @@ namespace D3D12HelloWorld.Mutiny {
         void MoveToNextFrame() {
             // Schedule a Signal command in the queue.
             ulong currentFenceValue = mFenceValues[mFrameIndex];
-            mCommandQueue.Signal(mFence, currentFenceValue);
+            //TODO: Work out how to change this to remove dependency on internal member: NativeCommandQueue
+            mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, currentFenceValue);
 
             // Update the frame index.
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
@@ -524,111 +703,6 @@ namespace D3D12HelloWorld.Mutiny {
             mFenceValues[mFrameIndex] = currentFenceValue + 1;
             Log.Logger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Required fence value {requiredFenceValue} for Frame index {mFrameIndex}.",
                              nameof(MoveToNextFrame), mFenceValues[mFrameIndex], mFrameIndex);
-        }
-
-        protected static ReadOnlyMemory<byte> CompileBytecode(DxcShaderStage stage, string shaderName,
-                                                              string entryPoint, DxcShaderModel? shaderModel = default) {
-            string assetsPath = AppContext.BaseDirectory; // System.IO.Path.Combine(AppContext.BaseDirectory, "Shaders");
-            string fileName = System.IO.Path.Combine(assetsPath, shaderName);
-            string shaderSource = System.IO.File.ReadAllText(fileName);
-
-            var options = new DxcCompilerOptions();
-            if (shaderModel != null) {
-                options.ShaderModel = shaderModel.Value;
-            }
-            else {
-                options.ShaderModel = DxcShaderModel.Model6_4;
-            }
-
-            using (var includeHandler = new ShaderIncludeHandler(assetsPath)) {
-                using IDxcResult results = DxcCompiler.Compile(stage, shaderSource, entryPoint, options,
-                    fileName: fileName,
-                    includeHandler: includeHandler);
-                if (results.GetStatus().Failure) {
-                    throw new Exception(results.GetErrors());
-                }
-
-                return results.GetObjectBytecodeMemory();
-            }
-        }
-
-        private class ShaderIncludeHandler : CallbackBase, IDxcIncludeHandler {
-            private readonly string[] _includeDirectories;
-            private readonly Dictionary<string, SourceCodeBlob> _sourceFiles = new Dictionary<string, SourceCodeBlob>();
-
-            public ShaderIncludeHandler(params string[] includeDirectories) {
-                _includeDirectories = includeDirectories;
-            }
-
-            protected override void DisposeCore(bool disposing) {
-                foreach (var pinnedObject in _sourceFiles.Values)
-                    pinnedObject?.Dispose();
-
-                _sourceFiles.Clear();
-            }
-
-            public Result LoadSource(string fileName, out IDxcBlob? includeSource) {
-                if (fileName.StartsWith("./"))
-                    fileName = fileName.Substring(2);
-
-                var includeFile = GetFilePath(fileName);
-
-                if (string.IsNullOrEmpty(includeFile)) {
-                    includeSource = default;
-
-                    return Result.Fail;
-                }
-
-                if (!_sourceFiles.TryGetValue(includeFile, out SourceCodeBlob? sourceCodeBlob)) {
-                    byte[] data = NewMethod(includeFile);
-
-                    sourceCodeBlob = new SourceCodeBlob(data);
-                    _sourceFiles.Add(includeFile, sourceCodeBlob);
-                }
-
-                includeSource = sourceCodeBlob.Blob;
-
-                return Result.Ok;
-            }
-
-            private static byte[] NewMethod(string includeFile) => System.IO.File.ReadAllBytes(includeFile);
-
-            private string? GetFilePath(string fileName) {
-                for (int i = 0; i < _includeDirectories.Length; i++) {
-                    var filePath = System.IO.Path.GetFullPath(System.IO.Path.Combine(_includeDirectories[i], fileName));
-
-                    if (System.IO.File.Exists(filePath))
-                        return filePath;
-                }
-
-                return null;
-            }
-
-
-            private class SourceCodeBlob : IDisposable {
-                private byte[] _data;
-                private GCHandle _dataPointer;
-                private IDxcBlobEncoding? _blob;
-
-                internal IDxcBlob? Blob { get => _blob; }
-
-                public SourceCodeBlob(byte[] data) {
-                    _data = data;
-
-                    _dataPointer = GCHandle.Alloc(data, GCHandleType.Pinned);
-
-                    _blob = DxcCompiler.Utils.CreateBlob(_dataPointer.AddrOfPinnedObject(), data.Length, Vortice.Dxc.Dxc.DXC_CP_UTF8);
-                }
-
-                public void Dispose() {
-                    //_blob?.Dispose();
-                    _blob = null;
-
-                    if (_dataPointer.IsAllocated)
-                        _dataPointer.Free();
-                    _dataPointer = default;
-                }
-            }
         }
     }
 }

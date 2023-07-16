@@ -3,15 +3,21 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net6.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
-    <LangVersion>8.0</LangVersion>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\D3D12HelloWorld\MemoryExtensions.cs" Link="MemoryExtensions.cs" />
+    <Compile Include="..\D3D12HelloWorld\Rendering\*.cs" LinkBase="Rendering" />
+    <Compile Include="..\D3D12HelloWorld\XModelLoader.cs" Link="XModelLoader.cs" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="DirectX12GameEngine.Shaders" Version="1.0.6" />
@@ -24,14 +30,4 @@
     <PackageReference Include="Vortice.Direct3D12" Version="3.2.0" />
     <PackageReference Include="Vortice.Dxc" Version="3.2.0" />
   </ItemGroup>
-
-  <ItemGroup>
-    <None Update="HelloTextureShaders.hlsl">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-    <None Update="HelloTriangleShaders.hlsl">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>
