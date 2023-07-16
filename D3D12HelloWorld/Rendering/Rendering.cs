@@ -213,41 +213,63 @@ namespace D3D12HelloWorld.Rendering {
         internal Texture(GraphicsDevice device, ID3D12Resource resource)
             : base(device, resource) {
         }
+
+        //public static Texture Create2D(GraphicsDevice device, int width, int height, Format format, ResourceFlags textureFlags = ResourceFlags.None,
+        //                               ushort mipLevels = 1, ushort arraySize = 1, int sampleCount = 1, int sampleQuality = 0, HeapType heapType = HeapType.Default) {
+        //    var description = ResourceDescription.Texture2D(format, (uint)width, (uint)height, arraySize, mipLevels, sampleCount, sampleQuality, textureFlags);
+        //    return new Texture(device, description, heapType);
+        //}
     }
 
     public class DepthStencilView : ResourceView {
-        public DepthStencilView(GraphicsResource resource)
-            : base(resource, CreateDepthStencilView(resource)) {
+        public DepthStencilView(GraphicsResource resource, DescriptorAllocator dsvAllocator, DepthStencilViewDescription? description = null)
+            : base(resource, CreateDepthStencilView(resource, dsvAllocator, description)) {
         }
 
-        private static CpuDescriptorHandle CreateDepthStencilView(GraphicsResource resource) {
-            CpuDescriptorHandle handle = resource.GraphicsDevice.DepthStencilViewAllocator.Allocate(1);
-            resource.GraphicsDevice.NativeDevice.CreateDepthStencilView(resource.NativeResource, null, handle);
+        public static Texture CreateBuffer(GraphicsDevice device, int width, int height, Format format) {
+            var description = ResourceDescription.Texture2D(format, (uint)width, (uint)height, 1, 0, 1, 0, ResourceFlags.AllowDepthStencil);
+            var depthOptimizedClearValue = new ClearValue(format, 1.0f, 0);
+            var resource = device.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, description,
+                                                                       ResourceStates.DepthWrite, depthOptimizedClearValue);
+            return new Texture(device, resource);
+        }
+
+        public static DepthStencilView FromTexture2D(GraphicsResource resource, DescriptorAllocator dsvAllocator) {
+            return new DepthStencilView(resource, dsvAllocator, new DepthStencilViewDescription {
+                Format = resource.Description.Format,
+                ViewDimension = DepthStencilViewDimension.Texture2D,
+                Flags = DepthStencilViewFlags.None,
+            });
+        }
+
+        private static CpuDescriptorHandle CreateDepthStencilView(GraphicsResource resource, DescriptorAllocator dsvAllocator, DepthStencilViewDescription? description) {
+            CpuDescriptorHandle handle = dsvAllocator.Allocate(1);
+            resource.GraphicsDevice.NativeDevice.CreateDepthStencilView(resource.NativeResource, description, handle);
             return handle;
         }
     }
 
     public class RenderTargetView : ResourceView {
-        public RenderTargetView(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator)
-            : this(resource, renderTargetViewAllocator, null) {
+        public RenderTargetView(GraphicsResource resource, DescriptorAllocator rtvAllocator)
+            : this(resource, rtvAllocator, null) {
         }
 
-        internal RenderTargetView(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator, RenderTargetViewDescription? description)
-            : base(resource, CreateRenderTargetView(resource, renderTargetViewAllocator, description)) {
+        internal RenderTargetView(GraphicsResource resource, DescriptorAllocator rtvAllocator, RenderTargetViewDescription? description)
+            : base(resource, CreateRenderTargetView(resource, rtvAllocator, description)) {
             Description = description;
         }
 
         internal RenderTargetViewDescription? Description { get; }
 
-        public static RenderTargetView FromTexture2D(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator, Format format) {
+        public static RenderTargetView FromTexture2D(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator) {
             return new RenderTargetView(resource, renderTargetViewAllocator, new RenderTargetViewDescription {
                 ViewDimension = RenderTargetViewDimension.Texture2D,
-                Format = format,
+                Format = resource.Description.Format,
             });
         }
 
-        private static CpuDescriptorHandle CreateRenderTargetView(GraphicsResource resource, DescriptorAllocator renderTargetViewAllocator, RenderTargetViewDescription? description) {
-            CpuDescriptorHandle handle = renderTargetViewAllocator.Allocate(1);
+        private static CpuDescriptorHandle CreateRenderTargetView(GraphicsResource resource, DescriptorAllocator rtvAllocator, RenderTargetViewDescription? description) {
+            CpuDescriptorHandle handle = rtvAllocator.Allocate(1);
             resource.GraphicsDevice.NativeDevice.CreateRenderTargetView(resource.NativeResource, description, handle);
             return handle;
         }

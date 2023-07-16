@@ -310,7 +310,7 @@ namespace D3D12HelloWorld.Mutiny {
                 var renderTargets = new RenderTargetView[FrameCount];
                 for (int n = 0; n < swapChainDesc.BufferCount; n++) {
                     var renderTargetTexture = new Texture(mGraphicsDevice, mSwapChain.GetBuffer<ID3D12Resource>(n));
-                    renderTargets[n] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap, backBufferFormat);
+                    renderTargets[n] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap);
 
 
                     mCommandAllocators[n] = mDevice.CreateCommandAllocator(CommandListType.Direct);

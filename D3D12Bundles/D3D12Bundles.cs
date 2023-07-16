@@ -23,6 +23,7 @@ namespace D3D12Bundles {
         const int CityColumnCount = 3;
         const bool UseBundles = true;
         const Format BackBufferFormat = Format.R8G8B8A8_UNorm;
+        const Format DepthStencilFormat = Format.D32_Float;
 
         struct Vertex {
             /// <summary>
@@ -63,12 +64,12 @@ namespace D3D12Bundles {
         RawRect mScissorRect;
         IDXGISwapChain3 mSwapChain;
         GraphicsDevice mGraphicsDevice;
-        ID3D12Resource mDepthStencil;
+        DepthStencilView mDepthStencil;
         ID3D12CommandAllocator mCommandAllocator;
         ID3D12RootSignature mRootSignature;
         DescriptorAllocator mRtvHeap;
         ID3D12DescriptorHeap mCbvSrvHeap;
-        ID3D12DescriptorHeap mDsvHeap;
+        DescriptorAllocator mDsvHeap;
         ID3D12DescriptorHeap mSamplerHeap;
         ID3D12PipelineState mPipelineState1;
         ID3D12PipelineState mPipelineState2;
@@ -103,6 +104,7 @@ namespace D3D12Bundles {
         public D3D12Bundles() : this(1200, 900, string.Empty) {
         }
 
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         public D3D12Bundles(uint width, uint height, string name) {
             InitializeComponent();
 
@@ -128,6 +130,7 @@ namespace D3D12Bundles {
             this.KeyDown += (object? sender, KeyEventArgs e) => mCamera.OnKeyDown(e.KeyData);
             this.KeyUp += (object? sender, KeyEventArgs e) => mCamera.OnKeyUp(e.KeyData);
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
             lock (mTickLock) {
@@ -293,12 +296,7 @@ namespace D3D12Bundles {
                 mRtvHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.RenderTargetView, FrameCount);
 
                 // Describe and create a depth stencil view (DSV) descriptor heap.
-                var dsvHeapDesc = new DescriptorHeapDescription {
-                    DescriptorCount = 1,
-                    Type = DescriptorHeapType.DepthStencilView,
-                    Flags = DescriptorHeapFlags.None,
-                };
-                mDsvHeap = mGraphicsDevice.NativeDevice.CreateDescriptorHeap(dsvHeapDesc);
+                mDsvHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.DepthStencilView, 1); 
 
                 // Describe and create a shader resource view (SRV) and constant 
                 // buffer view (CBV) descriptor heap.
@@ -401,7 +399,7 @@ namespace D3D12Bundles {
                     BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
                     //BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
                     DepthStencilState = DepthStencilDescription.Default,
-                    DepthStencilFormat = Format.D32_Float,
+                    DepthStencilFormat = DepthStencilFormat,
                     SampleMask = uint.MaxValue, //This is the default value anyway...
                     PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
                     RenderTargetFormats = new[] { Format.R8G8B8A8_UNorm, },
@@ -426,7 +424,7 @@ namespace D3D12Bundles {
                 var renderTargets = new RenderTargetView[mSwapChain.Description1.BufferCount];
                 for (int i = 0; i < renderTargets.Length; i++) {
                     var renderTargetTexture = new Texture(mGraphicsDevice, mSwapChain.GetBuffer<ID3D12Resource>(i));
-                    renderTargets[i] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap, BackBufferFormat);
+                    renderTargets[i] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap);
                     renderTargets[i].Resource.NativeResource.Name = $"{nameof(renderTargets)}[{i}]";
                 }
 
@@ -592,18 +590,9 @@ namespace D3D12Bundles {
 
             // Create the depth stencil view.
             {
-                var depthStencilDesc = new DepthStencilViewDescription {
-                    Format = Format.D32_Float,
-                    ViewDimension = DepthStencilViewDimension.Texture2D,
-                    Flags = DepthStencilViewFlags.None,
-                };
-                var depthOptimizedClearValue = new ClearValue(Format.D32_Float, 1.0f, 0);
-                mDepthStencil = mGraphicsDevice.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
-                                                                                     ResourceDescription.Texture2D(Format.D32_Float, (uint)Width, (uint)Height, 1, 0, 1, 0, ResourceFlags.AllowDepthStencil),
-                                                                                     ResourceStates.DepthWrite, depthOptimizedClearValue);
-                mDepthStencil.Name = nameof(mDepthStencil);
-
-                mGraphicsDevice.NativeDevice.CreateDepthStencilView(mDepthStencil, depthStencilDesc, mDsvHeap.GetCPUDescriptorHandleForHeapStart());
+                Texture depthStencilTexture = DepthStencilView.CreateBuffer(mGraphicsDevice, Width, Height, DepthStencilFormat);
+                mDepthStencil = DepthStencilView.FromTexture2D(depthStencilTexture, mDsvHeap);
+                mDepthStencil.Resource.NativeResource.Name = nameof(mDepthStencil);
             }
 
             // Close the command list and execute it to begin the initial GPU setup.
@@ -689,14 +678,14 @@ namespace D3D12Bundles {
             mCommandList.ResourceBarrierTransition(mGraphicsDevice.CommandList.RenderTargets[mFrameIndex].Resource.NativeResource, ResourceStates.Present, ResourceStates.RenderTarget);
 
             CpuDescriptorHandle rtvHandle = mRtvHeap.AllocateSlot(mFrameIndex);
-            CpuDescriptorHandle dsvHandle = mDsvHeap.GetCPUDescriptorHandleForHeapStart();
+            CpuDescriptorHandle dsvHandle = mDsvHeap.AllocateSlot(0);
             //mGraphicsDevice.CommandList.SetRenderTargets(dsvHandle, rtvHandle);  //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly
             mCommandList.OMSetRenderTargets(rtvHandle, dsvHandle);
 
             // Record commands.
             var clearColor = new Color4(0.0f, 0.2f, 0.4f, 1.0f);
             mCommandList.ClearRenderTargetView(rtvHandle, clearColor);
-            mCommandList.ClearDepthStencilView(mDsvHeap.GetCPUDescriptorHandleForHeapStart(), ClearFlags.Depth, 1.0f, 0);
+            mCommandList.ClearDepthStencilView(dsvHandle, ClearFlags.Depth, 1.0f, 0);
 
             if (UseBundles) {
                 // Execute the prebuilt bundle.

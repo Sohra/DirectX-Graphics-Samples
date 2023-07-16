@@ -7,7 +7,8 @@ namespace D3D12HelloWorld.Rendering {
     public class GraphicsResource : IDisposable {
         ConstantBufferView? defaultConstantBufferView;
 
-        public GraphicsResource(GraphicsDevice device, ResourceDescription description, HeapType heapType) : this(device, CreateResource(device, description, heapType)) {
+        public GraphicsResource(GraphicsDevice device, ResourceDescription description, HeapType heapType)
+            : this(device, CreateResource(device, description, heapType)) {
         }
 
         internal GraphicsResource(GraphicsDevice device, ID3D12Resource resource) {
