@@ -1,4 +1,4 @@
-﻿namespace D3D12HelloWorld.Rendering {
+﻿namespace wired.Rendering {
     public interface IShader {
         void Accept(ShaderGeneratorContext context);
     }

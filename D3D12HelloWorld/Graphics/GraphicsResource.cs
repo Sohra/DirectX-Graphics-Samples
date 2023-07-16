@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Graphics {
     public class GraphicsResource : IDisposable {
         ConstantBufferView? defaultConstantBufferView;
 

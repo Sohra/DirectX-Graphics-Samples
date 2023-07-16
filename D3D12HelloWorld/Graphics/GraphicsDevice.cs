@@ -1,7 +1,7 @@
 ﻿using System;
 using Vortice.Direct3D12;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Graphics {
     public sealed class GraphicsDevice : IDisposable {
         readonly ID3D12Device mDevice;
 
@@ -12,8 +12,6 @@ namespace D3D12HelloWorld.Rendering {
             ComputeCommandQueue = new CommandQueue(device, CommandListType.Compute, "Compute Queue");
             CopyCommandQueue = new CommandQueue(device, CommandListType.Copy, "Copy Queue");
 
-            //DepthStencilViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.DepthStencilView, 1);
-            //RenderTargetViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.RenderTargetView, 2);
             ShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096);
             SamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256);
             ShaderVisibleShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096, DescriptorHeapFlags.ShaderVisible);
@@ -32,8 +30,6 @@ namespace D3D12HelloWorld.Rendering {
         public CommandQueue ComputeCommandQueue { get; }
         public CommandQueue CopyCommandQueue { get; }
 
-        //public DescriptorAllocator DepthStencilViewAllocator { get; set; }
-        //public DescriptorAllocator RenderTargetViewAllocator { get; set; }
         /// <summary>
         /// Gets the descriptor allocator for shader resource views. This allocator manages a descriptor heap that is not shader-visible, 
         /// typically used for creating descriptors that are used on the CPU side, such as for copying descriptors between heaps.
@@ -56,8 +52,6 @@ namespace D3D12HelloWorld.Rendering {
             ShaderVisibleShaderResourceViewAllocator.Dispose();
             SamplerAllocator.Dispose();
             ShaderResourceViewAllocator.Dispose();
-            //RenderTargetViewAllocator.Dispose();
-            //DepthStencilViewAllocator.Dispose();
 
             CopyCommandQueue.Dispose();
             ComputeCommandQueue.Dispose();

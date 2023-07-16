@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <Compile Include="..\D3D12HelloWorld\MemoryExtensions.cs" Link="MemoryExtensions.cs" />
+    <Compile Include="..\D3D12HelloWorld\Graphics\*.cs" LinkBase="Graphics" />
     <Compile Include="..\D3D12HelloWorld\Rendering\*.cs" LinkBase="Rendering" />
     <Compile Include="..\D3D12HelloWorld\XModelLoader.cs" Link="XModelLoader.cs" />
   </ItemGroup>

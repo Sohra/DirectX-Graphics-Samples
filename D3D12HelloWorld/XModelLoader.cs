@@ -1,5 +1,4 @@
-﻿using D3D12HelloWorld.Rendering;
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,10 +9,11 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using Vortice.Direct3D12;
-using static D3D12HelloWorld.StringExtensions;
+using wired.Graphics;
+using wired.Rendering;
 using Format = Vortice.DXGI.Format;
 
-namespace D3D12HelloWorld {
+namespace wired.Assets {
     class XModelLoader {
         readonly GraphicsDevice mDevice;
         readonly IDictionary<Mesh, Matrix4x4> mFrames;
@@ -444,7 +444,7 @@ namespace D3D12HelloWorld {
                 };
                 var model = new Model();
                 model.Materials.Add(material);
-                model.Meshes.Add(new Rendering.Mesh(meshDraw) { MaterialIndex = 0, WorldMatrix = primitiveWorldMatrix });
+                model.Meshes.Add(new wired.Rendering.Mesh(meshDraw) { MaterialIndex = 0, WorldMatrix = primitiveWorldMatrix });
                 meshes.Add((indexBuffer, vertexBuffer, context.ShaderResourceViews, model));
             }
 

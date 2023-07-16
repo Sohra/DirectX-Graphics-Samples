@@ -1,5 +1,4 @@
-﻿using D3D12HelloWorld.Rendering;
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
@@ -15,6 +14,10 @@ using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
+using wired;
+using wired.Assets;
+using wired.Graphics;
+using wired.Rendering;
 
 namespace D3D12HelloWorld.HelloTexture {
     /// <summary>

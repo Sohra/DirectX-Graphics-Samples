@@ -1,5 +1,4 @@
-﻿using D3D12HelloWorld.Rendering;
-using Serilog;
+﻿using Serilog;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
@@ -14,6 +13,9 @@ using Vortice;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 using Vortice.Mathematics;
+using wired.Assets;
+using wired.Graphics;
+using wired.Rendering;
 
 namespace D3D12HelloWorld.Mutiny {
     public partial class D3D12Mutiny : Form {
@@ -60,6 +62,7 @@ namespace D3D12HelloWorld.Mutiny {
         public D3D12Mutiny() : this(1200, 900, string.Empty) {
         }
 
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         public D3D12Mutiny(uint width, uint height, string name) {
             InitializeComponent();
 
@@ -80,6 +83,7 @@ namespace D3D12HelloWorld.Mutiny {
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
             this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
             lock (mTickLock) {

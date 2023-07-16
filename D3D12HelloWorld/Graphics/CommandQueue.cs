@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using Vortice.Direct3D12;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Graphics {
     public class CompiledCommandList {
 #pragma warning disable IDE0052 // Remove unread private members
         //Hold a reference to this, to ensure it is not disposed while we still hold a reference to the command list associated with it

@@ -3,7 +3,7 @@ using System.Linq;
 using Vortice.Direct3D;
 using Vortice.Direct3D12;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Graphics {
     public sealed class CommandList : IDisposable {
         readonly GraphicsDevice mDevice;
         readonly CommandListType mCommandListType;

@@ -1,6 +1,4 @@
-﻿using D3D12HelloWorld;
-using D3D12HelloWorld.Rendering;
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
 using SharpGen.Runtime;
 using System.IO;
 using System.Numerics;
@@ -12,6 +10,10 @@ using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
+using wired;
+using wired.Assets;
+using wired.Graphics;
+using wired.Rendering;
 
 namespace D3D12Bundles {
     /// <summary>
@@ -22,8 +24,6 @@ namespace D3D12Bundles {
         const int CityRowCount = 10;
         const int CityColumnCount = 3;
         const bool UseBundles = true;
-        const Format BackBufferFormat = Format.R8G8B8A8_UNorm;
-        const Format DepthStencilFormat = Format.D32_Float;
 
         struct Vertex {
             /// <summary>
@@ -62,14 +62,11 @@ namespace D3D12Bundles {
         // Pipeline objects.
         Viewport mViewport;
         RawRect mScissorRect;
-        IDXGISwapChain3 mSwapChain;
+        GraphicsPresenter mPresenter;
         GraphicsDevice mGraphicsDevice;
-        DepthStencilView mDepthStencil;
         ID3D12CommandAllocator mCommandAllocator;
         ID3D12RootSignature mRootSignature;
-        DescriptorAllocator mRtvHeap;
         ID3D12DescriptorHeap mCbvSrvHeap;
-        DescriptorAllocator mDsvHeap;
         ID3D12DescriptorHeap mSamplerHeap;
         ID3D12PipelineState mPipelineState1;
         ID3D12PipelineState mPipelineState2;
@@ -92,7 +89,6 @@ namespace D3D12Bundles {
         int mCurrentFrameResourceIndex;
 
         // Synchronization objects.
-        int mFrameIndex;
         int mFrameCounter;
         ManualResetEvent mFenceEvent;
         ID3D12Fence mFence;
@@ -196,8 +192,7 @@ namespace D3D12Bundles {
             }
 
             // Present and update the frame index for the next frame.
-            mSwapChain.Present(1, 0).CheckError();
-            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
+            mPresenter.Present();
 
             // Signal and increment the fence value.
             mCurrentFrameResource.mFenceValue = mFenceValue;
@@ -274,30 +269,15 @@ namespace D3D12Bundles {
             // and a Direct CommandList (which provides its own command allocator).
             mGraphicsDevice = new GraphicsDevice(device);
 
-            // Describe and create the swap chain.
-            var swapChainDesc = new SwapChainDescription1 {
-                BufferCount = FrameCount,
-                Width = Width,
-                Height = Height,
-                Format = BackBufferFormat,
-                BufferUsage = Usage.RenderTargetOutput,
-                SwapEffect = SwapEffect.FlipDiscard,
-                SampleDescription = SampleDescription.Default,
+            // Describe and create the swap chain, which also creates descriptor heaps for render target views and the depth stencil view,
+            // and the render target views (RTVs) and depth stencil view (DSV) themselves.
+            var presentationParameters = new PresentationParameters(Width, Height, Format.R8G8B8A8_UNorm) {
+                DepthStencilFormat = Format.D32_Float,
             };
-
-            // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mGraphicsDevice.DirectCommandQueue.NativeCommandQueue, base.Handle, swapChainDesc);
-            mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
-            mFrameIndex = mSwapChain.CurrentBackBufferIndex;
+            mPresenter = new HwndSwapChainGraphicsPresenter(factory!, mGraphicsDevice, FrameCount, presentationParameters, base.Handle);
 
             // Create descriptor heaps.
             {
-                // Describe and create a render target view (RTV) descriptor heap.
-                mRtvHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.RenderTargetView, FrameCount);
-
-                // Describe and create a depth stencil view (DSV) descriptor heap.
-                mDsvHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.DepthStencilView, 1); 
-
                 // Describe and create a shader resource view (SRV) and constant 
                 // buffer view (CBV) descriptor heap.
                 var cbvSrvHeapDesc = new DescriptorHeapDescription {
@@ -399,10 +379,10 @@ namespace D3D12Bundles {
                     BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
                     //BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
                     DepthStencilState = DepthStencilDescription.Default,
-                    DepthStencilFormat = DepthStencilFormat,
+                    DepthStencilFormat = mPresenter.PresentationParameters.DepthStencilFormat,
                     SampleMask = uint.MaxValue, //This is the default value anyway...
                     PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
-                    RenderTargetFormats = new[] { Format.R8G8B8A8_UNorm, },
+                    RenderTargetFormats = new[] { mPresenter.PresentationParameters.BackBufferFormat, },
                     SampleDescription = SampleDescription.Default,  //This is the default value anyway...
                 };
                 mPipelineState1 = mGraphicsDevice.NativeDevice.CreateGraphicsPipelineState(psoDesc);
@@ -418,18 +398,6 @@ namespace D3D12Bundles {
             // Create the command list.
             mCommandList = mGraphicsDevice.NativeDevice.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Direct, mCommandAllocator, null);
             mCommandList.Name = nameof(mCommandList);
-
-            // Create render target views (RTVs).
-            {
-                var renderTargets = new RenderTargetView[mSwapChain.Description1.BufferCount];
-                for (int i = 0; i < renderTargets.Length; i++) {
-                    var renderTargetTexture = new Texture(mGraphicsDevice, mSwapChain.GetBuffer<ID3D12Resource>(i));
-                    renderTargets[i] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap);
-                    renderTargets[i].Resource.NativeResource.Name = $"{nameof(renderTargets)}[{i}]";
-                }
-
-                mGraphicsDevice.CommandList.SetRenderTargets(null, renderTargets);
-            }
 
             // Read in mesh data for vertex/index buffers.
             {
@@ -588,13 +556,6 @@ namespace D3D12Bundles {
                 mGraphicsDevice.NativeDevice.CreateShaderResourceView(mTexture, srvDesc, mCbvSrvHeap.GetCPUDescriptorHandleForHeapStart());
             }
 
-            // Create the depth stencil view.
-            {
-                Texture depthStencilTexture = DepthStencilView.CreateBuffer(mGraphicsDevice, Width, Height, DepthStencilFormat);
-                mDepthStencil = DepthStencilView.FromTexture2D(depthStencilTexture, mDsvHeap);
-                mDepthStencil.Resource.NativeResource.Name = nameof(mDepthStencil);
-            }
-
             // Close the command list and execute it to begin the initial GPU setup.
             mCommandList.Close();
             mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.ExecuteCommandList(mCommandList);
@@ -675,10 +636,11 @@ namespace D3D12Bundles {
             mCommandList.RSSetScissorRects(mScissorRect);
 
             // Indicate that the back buffer will be used as a render target.
-            mCommandList.ResourceBarrierTransition(mGraphicsDevice.CommandList.RenderTargets[mFrameIndex].Resource.NativeResource, ResourceStates.Present, ResourceStates.RenderTarget);
+            mCommandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource.NativeResource, ResourceStates.Present, ResourceStates.RenderTarget);
 
-            CpuDescriptorHandle rtvHandle = mRtvHeap.AllocateSlot(mFrameIndex);
-            CpuDescriptorHandle dsvHandle = mDsvHeap.AllocateSlot(0);
+            var frameIndex = Array.IndexOf(mGraphicsDevice.CommandList.RenderTargets, mPresenter.BackBuffer);
+            CpuDescriptorHandle rtvHandle = mPresenter.RenderTargetViewAllocator.AllocateSlot(frameIndex);
+            CpuDescriptorHandle dsvHandle = mPresenter.DepthStencilViewAllocator.AllocateSlot(0);
             //mGraphicsDevice.CommandList.SetRenderTargets(dsvHandle, rtvHandle);  //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly
             mCommandList.OMSetRenderTargets(rtvHandle, dsvHandle);
 
@@ -698,7 +660,7 @@ namespace D3D12Bundles {
             }
 
             // Indicate that the back buffer will now be used to present.
-            mCommandList.ResourceBarrierTransition(mGraphicsDevice.CommandList.RenderTargets[mFrameIndex].Resource.NativeResource, ResourceStates.RenderTarget, ResourceStates.Present);
+            mCommandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource.NativeResource, ResourceStates.RenderTarget, ResourceStates.Present);
 
             mCommandList.Close();
         }
