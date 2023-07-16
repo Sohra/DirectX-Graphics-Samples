@@ -338,16 +338,7 @@ namespace D3D12HelloWorld {
             return new XModelLoader(device, frames);
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="device"></param>
-        /// <param name="copyCommandQueue"></param>
-        /// <param name="data"></param>
-        /// <param name="bufferFlags"></param>
-        /// <returns></returns>
-        public static ID3D12Resource CreateBufferOnDefaultHeap<T>(GraphicsDevice device, CommandQueue copyCommandQueue, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
+        static ID3D12Resource CreateBufferOnDefaultHeap<T>(GraphicsDevice device, CommandQueue copyCommandQueue, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
             //Create buffer
             var size = (ulong)(data.Length * Unsafe.SizeOf<T>());
             ID3D12Resource buffer = device.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.Common);
@@ -366,15 +357,7 @@ namespace D3D12HelloWorld {
             return buffer;
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="device"></param>
-        /// <param name="data"></param>
-        /// <param name="bufferFlags"></param>
-        /// <returns></returns>
-        public static ID3D12Resource CreateBufferOnUploadHeap<T>(ID3D12Device device, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
+        static ID3D12Resource CreateBufferOnUploadHeap<T>(ID3D12Device device, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
             //Create buffer
             int size = data.Length * Unsafe.SizeOf<T>();
             ID3D12Resource buffer = device.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.GenericRead);
@@ -398,14 +381,6 @@ namespace D3D12HelloWorld {
                 var areIndices32Bit = System.Runtime.InteropServices.Marshal.SizeOf(faceVertexIndices.GetType().GetElementType()!) == sizeof(int);
                 ID3D12Resource indexBuffer = CreateBufferOnDefaultHeap(mDevice, mDevice.CopyCommandQueue, GetIndexBuffer(faceVertexIndices), ResourceFlags.None);
                 var indexBufferView = new IndexBufferView(indexBuffer.GPUVirtualAddress, (int)indexBuffer.Description.Width, areIndices32Bit);
-
-                //var worldMatrix = mFrames[mesh] * Matrix4x4.CreateScale(0.001f);// * Matrix4x4.CreateTranslation(0.0f, 0.0f, 0.25f);
-                //Front or back of ship, rotated 90 degrees on its side (mast pointing to the right)
-                //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / -2.0)) * Matrix4x4.CreateRotationY((float)(Math.PI / -2.0)) * Matrix4x4.CreateRotationZ((float)(Math.PI / -2.0));
-                //Who knows what, totally indecipherable to me... it should be a side view of the ship, port or starboard, but it's clearly not.  So, is the rendering wrong?  Is the model loading wrong?
-                //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationX((float)(Math.PI / 2.0));
-                //Now passing correct raw vertex buffer instead of a hand-made triangle list....
-                //var worldMatrix = Matrix4x4.CreateTranslation(0.0f, 0.0f, -13.0f) * Matrix4x4.CreateScale(0.001f) * Matrix4x4.CreateRotationY((float)(Math.PI / 2.0));
 
                 var worldMatrix = mFrames[mesh] * Matrix4x4.CreateScale(0.1f);  //For D3D12Bundles, and HelloTexture (with further scaling and translation compensation in its vertex shader)
                 var triangleVertices = mesh.Vertices.Select((f, i) => new FlatShadedVertex(Vector3.Transform(f, worldMatrix), mesh.TextureCoords[i]));
@@ -446,8 +421,11 @@ namespace D3D12HelloWorld {
                     shader = new ColourShader();
                 }
 
+                if (shader == null) {
+                    throw new InvalidOperationException($"No shader was selected for compilation! This indicates the model has a material, however the referenced texture could not be found.");
+                }
                 var context = new ShaderGeneratorContext(mDevice);
-                context.Visit(shader!);
+                context.Visit(shader);
 
                 //Describe and create the graphics pipeline state object (PSO)
                 PipelineState pipelineState = await context.CreateGraphicsPipelineStateAsync(FlatShadedVertex.InputElements);
@@ -529,7 +507,7 @@ namespace D3D12HelloWorld {
         }
 
 
-        private static Vector3[] GenerateVertexNormals(Mesh mesh) {
+        static Vector3[] GenerateVertexNormals(Mesh mesh) {
             //Create VertexBuffer for the normal data
             if (!mesh.FaceNormals.HasValue)
                 throw new InvalidOperationException("No Normal data was found in the model");
