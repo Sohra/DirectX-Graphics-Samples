@@ -15,7 +15,7 @@ namespace D3D12Bundles {
         /// <param name="context">Context for the event, accepts <see cref="ID3D12GraphicsCommandList"/> or <see cref="ID3D12CommandQueue"/>.</param>
         /// <param name="eventName">The name to use to describe the event</param>
         public ProfilingEvent(object context, string eventName) {
-            if (!new[] { typeof(ID3D12GraphicsCommandList), typeof(ID3D12CommandQueue), }.Contains(context.GetType())) {
+            if (!new[] { typeof(ID3D12GraphicsCommandList), typeof(ID3D12CommandQueue), typeof(wired.Graphics.CommandList), }.Contains(context.GetType())) {
                 throw new ArgumentException($"{context.GetType().Name} is not a valid context for profiling.", nameof(context));
             }
             mEventName = eventName;

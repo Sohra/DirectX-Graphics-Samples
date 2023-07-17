@@ -32,10 +32,10 @@ namespace D3D12HelloWorld
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             //Application.Run(new HelloTriangle.D3D12HelloTriangle(1200, 900, string.Empty));
-            //Application.Run(new HelloTexture.D3D12HelloTexture(1200, 900, string.Empty));
+            //Application.Run(new HelloTexture.D3D12HelloTexture(1200, 900, string.Empty, Log.Logger));
             //Application.Run(new HelloFrameBuffering.D3D12HelloFrameBuffering(1200, 900, string.Empty));
             //Application.Run(new HelloBundles.D3D12HelloBundles(1200, 900, string.Empty));
-            Application.Run(new Mutiny.D3D12Mutiny(1200, 900, string.Empty));
+            Application.Run(new Mutiny.D3D12Mutiny(1200, 900, string.Empty, Log.Logger));
         }
 
         internal static ShaderStage GetShaderStage(string shader) => shader switch

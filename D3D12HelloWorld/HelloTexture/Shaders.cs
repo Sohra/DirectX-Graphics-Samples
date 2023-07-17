@@ -1,9 +1,8 @@
-﻿using D3D12HelloWorld.Rendering;
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
 using System.Numerics;
+using wired.Rendering;
 
-namespace D3D12HelloWorld.HelloTexture
-{
+namespace D3D12HelloWorld.HelloTexture {
     public struct PSInput
     {
         [SystemPositionSemantic]

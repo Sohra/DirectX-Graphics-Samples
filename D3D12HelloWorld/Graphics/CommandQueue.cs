@@ -12,12 +12,15 @@ namespace wired.Graphics {
         readonly ID3D12CommandAllocator mCommandAllocator;
 #pragma warning restore IDE0052 // Remove unread private members
 
-        public CompiledCommandList(ID3D12GraphicsCommandList commandList, ID3D12CommandAllocator commandAllocator) {
-            CommandList = commandList;
+        public CompiledCommandList(CommandList builder, ID3D12CommandAllocator commandAllocator, ID3D12GraphicsCommandList nativeCommandList) {
+            Builder = builder;
+            NativeCommandList = nativeCommandList;
             mCommandAllocator = commandAllocator;
         }
 
-        internal ID3D12CommandList CommandList { get; }
+        internal CommandList Builder { get; }
+
+        internal ID3D12GraphicsCommandList NativeCommandList { get; }
     }
 
     public class CommandQueue : IDisposable {
@@ -27,7 +30,7 @@ namespace wired.Graphics {
         ulong mNextFenceValue;
 
         /// <summary>
-        /// Intended only for use by the call to IDXGIFactory2.reateSwapChainForHwnd
+        /// Intended only for use by the call to IDXGIFactory2.CreateSwapChainForHwnd
         /// </summary>
         internal ID3D12CommandQueue NativeCommandQueue => mCommandQueue;
 
@@ -48,6 +51,10 @@ namespace wired.Graphics {
         internal void ExecuteCommandList(ID3D12GraphicsCommandList commandList)
             => mCommandQueue.ExecuteCommandList(commandList);
 
+        [Obsolete("Work to refactor off this in favour of ExecuteCommandLists(CompiledCommandList), which accepts the higher CompiledCommandList abstraction.")]
+        internal void ExecuteCommandList(CompiledCommandList commandList)
+            => mCommandQueue.ExecuteCommandList(commandList.NativeCommandList);
+
         public void ExecuteCommandLists(params CompiledCommandList[] commandLists)
             => ExecuteCommandLists(commandLists.AsEnumerable());
 
@@ -62,7 +69,7 @@ namespace wired.Graphics {
 
         ulong ExecuteCommandListsInternal(IEnumerable<CompiledCommandList> commandLists) {
             ulong fenceValue = mNextFenceValue++;
-            ID3D12CommandList[] nativeCommandLists = commandLists.Select(c => c.CommandList).ToArray();
+            ID3D12CommandList[] nativeCommandLists = commandLists.Select(c => c.NativeCommandList).ToArray();
 
             mCommandQueue.ExecuteCommandLists(nativeCommandLists);
             mCommandQueue.Signal(mFence, fenceValue);

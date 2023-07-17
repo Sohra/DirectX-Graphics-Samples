@@ -29,7 +29,7 @@ namespace D3D12Bundles {
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new D3D12Bundles(1200, 900, "D3D12Bundles"));
+            Application.Run(new D3D12Bundles(1200, 900, "D3D12Bundles", Log.Logger));
         }
 
         internal static ShaderStage GetShaderStage(string shader) => shader switch

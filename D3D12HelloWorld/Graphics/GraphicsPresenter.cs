@@ -13,7 +13,6 @@ namespace wired.Graphics {
             DepthStencilViewAllocator = new DescriptorAllocator(device.NativeDevice, DescriptorHeapType.DepthStencilView, 1);
 
             DepthStencil = CreateDepthStencil(device, presentationParameters);
-            DepthStencil.Resource.NativeResource.Name = nameof(DepthStencil);
 
             // Describe and create a render target view (RTV) descriptor heap.
             RenderTargetViewAllocator = renderTargetViewAllocator;
@@ -60,7 +59,7 @@ namespace wired.Graphics {
             var depthOptimizedClearValue = new ClearValue(format, 1.0f, 0);
             var resource = device.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, description,
                                                                        ResourceStates.DepthWrite, depthOptimizedClearValue);
-            return new Texture(device, resource);
+            return new Texture(device, resource, nameof(DepthStencil));
         }
     }
 }

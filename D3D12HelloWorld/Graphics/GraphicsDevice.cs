@@ -1,12 +1,14 @@
-﻿using System;
+﻿using Serilog;
+using System;
 using Vortice.Direct3D12;
 
 namespace wired.Graphics {
     public sealed class GraphicsDevice : IDisposable {
         readonly ID3D12Device mDevice;
 
-        public GraphicsDevice(ID3D12Device device) {
+        public GraphicsDevice(ID3D12Device device, ILogger logger) {
             mDevice = device ?? throw new ArgumentNullException(nameof(device));
+            Logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             DirectCommandQueue = new CommandQueue(device, CommandListType.Direct, "Direct Queue");
             ComputeCommandQueue = new CommandQueue(device, CommandListType.Compute, "Compute Queue");
@@ -25,6 +27,7 @@ namespace wired.Graphics {
         }
 
         internal ID3D12Device NativeDevice => mDevice;
+        internal ILogger Logger { get; }
 
         public CommandQueue DirectCommandQueue { get; }
         public CommandQueue ComputeCommandQueue { get; }

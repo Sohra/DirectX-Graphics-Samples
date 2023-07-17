@@ -46,8 +46,11 @@ namespace wired.Graphics {
             }
         }
 
-        internal Texture(GraphicsDevice device, ID3D12Resource resource)
+        internal Texture(GraphicsDevice device, ID3D12Resource resource, string? name = null)
             : base(device, resource) {
+            if (!string.IsNullOrWhiteSpace(name)) {
+                NativeResource.Name = name;
+            }
         }
 
         //public static Texture Create2D(GraphicsDevice device, int width, int height, Format format, ResourceFlags textureFlags = ResourceFlags.None,

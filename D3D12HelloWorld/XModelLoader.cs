@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using Vortice.Direct3D12;
 using wired.Graphics;
 using wired.Rendering;
+using static wired.Assets.StringExtensions;
 using Format = Vortice.DXGI.Format;
 
 namespace wired.Assets {
