@@ -90,9 +90,6 @@ namespace D3D12Bundles {
 
         // Synchronization objects.
         int mFrameCounter;
-        ManualResetEvent mFenceEvent;
-        ID3D12Fence mFence;
-        ulong mFenceValue;
 
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
@@ -162,19 +159,15 @@ namespace D3D12Bundles {
 
             mFrameCounter++;
 
-            // Get current GPU progress against submitted workload. Resources still scheduled 
-            // for GPU execution cannot be modified or else undefined behavior will result.
-            var lastCompletedFence = mFence.CompletedValue;
-
             // Move to the next frame resource.
             mCurrentFrameResourceIndex = (mCurrentFrameResourceIndex + 1) % FrameCount;
             mCurrentFrameResource = mFrameResources[mCurrentFrameResourceIndex];
 
             // Make sure that this frame resource isn't still in use by the GPU.
-            // If it is, wait for it to complete.
-            if (mCurrentFrameResource.mFenceValue != 0 && mCurrentFrameResource.mFenceValue > lastCompletedFence) {
-                mFence.SetEventOnCompletion(mCurrentFrameResource.mFenceValue, mFenceEvent).CheckError();
-                mFenceEvent.WaitOne();
+            // If it is, wait for it to complete, because resources still scheduled for GPU execution
+            // cannot be modified or else undefined behavior will result.
+            if (mCurrentFrameResource.mFenceValue != 0) {
+                mGraphicsDevice.DirectCommandQueue.WaitForSignal(mCurrentFrameResource.mFenceValue);
             }
 
             mCamera.Update((float)mTimer.ElapsedSeconds);
@@ -187,37 +180,28 @@ namespace D3D12Bundles {
         public virtual void OnRender() {
             using (var pe = new ProfilingEvent(mGraphicsDevice.DirectCommandQueue.NativeCommandQueue, "Render")) {
                 // Record all the commands we need to render the scene into the command list.
-                PopulateCommandList(mCurrentFrameResource);
+                CompiledCommandList compiledCommandList = PopulateCommandList(mGraphicsDevice.CommandList, mCurrentFrameResource);
 
                 // Execute the command list.
-                mGraphicsDevice.DirectCommandQueue.ExecuteCommandList(mGraphicsDevice.CommandList.Close());
+                mGraphicsDevice.DirectCommandQueue.ExecuteCommandList(compiledCommandList);
             }
 
             // Present and update the frame index for the next frame.
             mPresenter.Present();
 
             // Signal and increment the fence value.
-            mCurrentFrameResource.mFenceValue = mFenceValue;
-            mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, mFenceValue).CheckError();
-            mFenceValue++;
+            mCurrentFrameResource.mFenceValue = mGraphicsDevice.DirectCommandQueue.AddSignal();
         }
 
         public virtual void OnDestroy() {
             // Ensure that the GPU is no longer referencing resources that are about to be
             // cleaned up by the destructor.
             {
-                var fence = mFenceValue;
-                var lastCompletedFence = mFence.CompletedValue;
-
-                // Signal and increment the fence value.
-                mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, mFenceValue).CheckError();
-                mFenceValue++;
+                // Add signal to the command queue.
+                var fence = mGraphicsDevice.DirectCommandQueue.AddSignal();
 
                 // Wait until the previous frame is finished.
-                if (lastCompletedFence < fence) {
-                    mFence.SetEventOnCompletion(fence, mFenceEvent).CheckError();
-                    mFenceEvent.WaitOne();
-                }
+                mGraphicsDevice.DirectCommandQueue.WaitForSignal(fence);
             }
 
             foreach (var frameResource in mFrameResources) {
@@ -621,30 +605,9 @@ namespace D3D12Bundles {
             }
 
             // Close the command list and execute it to begin the initial GPU setup.
-            mGraphicsDevice.DirectCommandQueue.ExecuteCommandList(mGraphicsDevice.CommandList.Close());
-
-            // Create synchronization objects and wait until assets have been uploaded to the GPU.
-            {
-                mFence = mGraphicsDevice.NativeDevice.CreateFence(mFenceValue, FenceFlags.None);
-                mFenceValue++;
-
-                // Create an event handle to use for frame synchronization.
-                mFenceEvent = new ManualResetEvent(false);
-
-                // Wait for the command list to execute; we are reusing the same command 
-                // list in our main loop but for now, we just want to wait for setup to 
-                // complete before continuing.
-
-
-                // Signal and increment the fence value.
-                var fenceToWaitFor = mFenceValue;
-                mGraphicsDevice.DirectCommandQueue.NativeCommandQueue.Signal(mFence, fenceToWaitFor).CheckError();
-                mFenceValue++;
-
-                // Wait until the fence is completed.
-                mFence.SetEventOnCompletion(fenceToWaitFor, mFenceEvent).CheckError();
-                mFenceEvent.WaitOne();
-            }
+            // This higher level abstraction will also wait until the command list finishes execution,
+            // which means the assets have been uploaded to the GPU before we continue.
+            mGraphicsDevice.DirectCommandQueue.ExecuteCommandLists(mGraphicsDevice.CommandList.Close());
 
             CreateFrameResources();
         }
@@ -679,7 +642,7 @@ namespace D3D12Bundles {
             }
         }
 
-        void PopulateCommandList(FrameResource frameResource) {
+        CompiledCommandList PopulateCommandList(CommandList commandList, FrameResource frameResource) {
             // Command list allocators can only be reset when the associated
             // command lists have finished execution on the GPU; apps should use
             // fences to determine GPU execution progress.
@@ -688,41 +651,41 @@ namespace D3D12Bundles {
             // However, when ExecuteCommandList() is called on a particular command
             // list, that command list can then be reset at any time and must be before
             // re-recording.
-            mGraphicsDevice.CommandList.Reset(mCurrentFrameResource.mCommandAllocator, mPipelineState1);
+            commandList.Reset(mCurrentFrameResource.mCommandAllocator, mPipelineState1);
 
             // Set necessary state.
-            mGraphicsDevice.CommandList.SetNecessaryState(mRootSignature, mCbvSrvHeap, mSamplerHeap);
+            commandList.SetNecessaryState(mRootSignature, mCbvSrvHeap, mSamplerHeap);
 
-            mGraphicsDevice.CommandList.SetViewports(mViewport);
-            mGraphicsDevice.CommandList.SetScissorRectangles(mScissorRect);
+            commandList.SetViewports(mViewport);
+            commandList.SetScissorRectangles(mScissorRect);
 
             // Indicate that the back buffer will be used as a render target.
-            mGraphicsDevice.CommandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource, ResourceStates.Present, ResourceStates.RenderTarget);
+            commandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource, ResourceStates.Present, ResourceStates.RenderTarget);
 
             //Ultimately calls OMSetRenderTargets after updating CommandList.RenderTargets accordingly, however as not setting all render targets, can't use this since
             //presenter doesn't expose all of them publicly.
-            //mGraphicsDevice.CommandList.SetRenderTargets(mGraphicsDevice.CommandList.DepthStencilBuffer, mGraphicsDevice.CommandList.RenderTargets);
-            mGraphicsDevice.CommandList.OMSetRenderTargets(mPresenter.BackBuffer.CpuDescriptorHandle, mGraphicsDevice.CommandList.DepthStencilBuffer!.CpuDescriptorHandle);
+            //commandList.SetRenderTargets(commandList.DepthStencilBuffer, commandList.RenderTargets);
+            commandList.OMSetRenderTargets(mPresenter.BackBuffer.CpuDescriptorHandle, commandList.DepthStencilBuffer!.CpuDescriptorHandle);
 
             // Record commands.
             var clearColor = new Color4(0.0f, 0.2f, 0.4f, 1.0f);
-            mGraphicsDevice.CommandList.ClearRenderTargetView(mPresenter.BackBuffer, clearColor);
-            mGraphicsDevice.CommandList.ClearDepthStencilView(mGraphicsDevice.CommandList.DepthStencilBuffer, ClearFlags.Depth, 1.0f, 0);
+            commandList.ClearRenderTargetView(mPresenter.BackBuffer, clearColor);
+            commandList.ClearDepthStencilView(commandList.DepthStencilBuffer, ClearFlags.Depth, 1.0f, 0);
 
             if (UseBundles) {
                 // Execute the prebuilt bundle.
-                mGraphicsDevice.CommandList.ExecuteBundle(frameResource.mBundle);
+                commandList.ExecuteBundle(frameResource.mBundle);
             }
             else {
                 // Populate a new command list.
-                frameResource.PopulateCommandList(mGraphicsDevice.CommandList, mPipelineState1, mPipelineState2, mCurrentFrameResourceIndex,
+                frameResource.PopulateCommandList(commandList, mPipelineState1, mPipelineState2, mCurrentFrameResourceIndex,
                                                   mNumIndices, mIndexBufferView, mVertexBufferView, mCbvSrvHeap, mCbvSrvDescriptorSize, mSamplerHeap, mRootSignature);
             }
 
             // Indicate that the back buffer will now be used to present.
-            mGraphicsDevice.CommandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource, ResourceStates.RenderTarget, ResourceStates.Present);
+            commandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource, ResourceStates.RenderTarget, ResourceStates.Present);
 
-            mGraphicsDevice.CommandList.Close();
+            return commandList.Close();
         }
 
     }

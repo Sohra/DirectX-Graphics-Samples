@@ -10,9 +10,9 @@ namespace wired.Graphics {
             mDevice = device ?? throw new ArgumentNullException(nameof(device));
             Logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            DirectCommandQueue = new CommandQueue(device, CommandListType.Direct, "Direct Queue");
-            ComputeCommandQueue = new CommandQueue(device, CommandListType.Compute, "Compute Queue");
-            CopyCommandQueue = new CommandQueue(device, CommandListType.Copy, "Copy Queue");
+            DirectCommandQueue = new CommandQueue(this, CommandListType.Direct, "Direct Queue");
+            ComputeCommandQueue = new CommandQueue(this, CommandListType.Compute, "Compute Queue");
+            CopyCommandQueue = new CommandQueue(this, CommandListType.Copy, "Copy Queue");
 
             ShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096);
             SamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256);

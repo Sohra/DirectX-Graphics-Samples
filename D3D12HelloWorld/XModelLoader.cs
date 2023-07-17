@@ -717,10 +717,10 @@ namespace wired.Assets {
     /// Based on https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/shaders.hlsl
     /// </summary>
     class TextureShader : IShader {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         public TextureShader(Texture? texture, bool convertToLinear = false) {
             Texture = texture;
             ConvertToLinear = convertToLinear;
-            ColorTexture = null!;
         }
 
         [IgnoreShaderMember]
@@ -730,10 +730,11 @@ namespace wired.Assets {
         public bool ConvertToLinear { get; set; }
 
         [ShaderMember]
-        public readonly SamplerState? Sampler;
+        public SamplerState Sampler { get; set; }
 
         [ShaderMember]
-        public Texture2D ColorTexture { get; private set; }
+        public Texture2D ColorTexture { get; set; }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         [Shader("vertex")]
         [ShaderMethod]
@@ -753,7 +754,7 @@ namespace wired.Assets {
         [ShaderMethod]
         [return: SystemTargetSemantic]
         public Vector4 PSMain(PSTVInput input) {
-            return ColorTexture.Sample(Sampler!, input.UV);
+            return ColorTexture.Sample(Sampler, input.UV);
         }
 
         public void Accept(ShaderGeneratorContext context) {

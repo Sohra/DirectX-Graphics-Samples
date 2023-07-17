@@ -17,8 +17,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
     /// <summary>
     /// https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/Desktop/D3D12HelloWorld/src/HelloFrameBuffering/D3D12HelloFrameBuffering.cpp
     /// </summary>
-    public partial class D3D12HelloFrameBuffering : Form
-    {
+    public partial class D3D12HelloFrameBuffering : Form {
         // In this sample we overload the meaning of FrameCount to mean both the maximum
         // number of frames that will be queued to the GPU at a time, as well as the number
         // of back buffers in the DXGI swap chain. For the majority of applications, this
@@ -29,8 +28,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         // may result in noticeable latency in your app.
         const int FrameCount = 2;
 
-        struct Vertex
-        {
+        struct Vertex {
             public Vector3 Position;
             public Color4 Colour;
         };
@@ -68,11 +66,11 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
 
-        public D3D12HelloFrameBuffering() : this(1200, 900, string.Empty)
-        {
+        public D3D12HelloFrameBuffering() : this(1200, 900, string.Empty) {
         }
-        public D3D12HelloFrameBuffering(uint width, uint height, string name)
-        {
+
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
+        public D3D12HelloFrameBuffering(uint width, uint height, string name) {
             InitializeComponent();
 
             Width = Convert.ToInt32(width);
@@ -91,21 +89,19 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             OnInit();
 
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
-            this.FormClosing += (object sender, FormClosingEventArgs e) => OnDestroy();
+            this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
-        private void HandleCompositionTarget_Rendering(object sender, EventArgs e)
-        {
-            lock (mTickLock)
-            {
+        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
+            lock (mTickLock) {
                 OnUpdate();
 
                 OnRender();
             }
         }
 
-        public virtual void OnInit()
-        {
+        public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
         }
@@ -113,15 +109,13 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         /// <summary>
         /// Update frame-based values
         /// </summary>
-        public virtual void OnUpdate()
-        {
+        public virtual void OnUpdate() {
         }
 
         /// <summary>
         /// Render the scene
         /// </summary>
-        public virtual void OnRender()
-        {
+        public virtual void OnRender() {
             // Record all the commands we need to render the scene into the command list.
             PopulateCommandList();
 
@@ -136,8 +130,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             MoveToNextFrame();
         }
 
-        public virtual void OnDestroy()
-        {
+        public virtual void OnDestroy() {
             // Ensure that the GPU is no longer referencing resources that are about to be
             // cleaned up by the destructor.
             WaitForGpu();
@@ -149,19 +142,16 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         /// <summary>
         /// Load the rendering pipeline dependencies.
         /// </summary>
-        void LoadPipeline()
-        {
+        void LoadPipeline() {
             bool dxgiFactoryDebugMode = false; //int dxgiFactoryFlags = 0;
 
 #if DEBUG
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             // NOTE: Enabling the debug layer after device creation will invalidate the active device.
             {
-                Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug debugController);
-
-                if (debugResult.Success)
-                {
-                    ID3D12Debug1 debug = debugController.QueryInterface<ID3D12Debug1>();
+                Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug? debugController);
+                if (debugResult.Success) {
+                    ID3D12Debug1 debug = debugController!.QueryInterface<ID3D12Debug1>();
 
                     debug.EnableDebugLayer();
 
@@ -172,19 +162,17 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             }
 #endif
 
-            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4 factory);
+            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4? factory);
 
-            if (mUseWarpDevice)
-            {
-                Result warpResult = factory.EnumWarpAdapter(out IDXGIAdapter warpAdapter);
+            if (mUseWarpDevice) {
+                Result warpResult = factory!.EnumWarpAdapter(out IDXGIAdapter? warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
                 mDevice = D3D12.D3D12CreateDevice<ID3D12Device>(warpAdapter, Vortice.Direct3D.FeatureLevel.Level_11_0);
             }
-            else
-            {
-                IDXGIAdapter1 hardwareAdapter = null;
+            else {
+                IDXGIAdapter1? hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
                 //GetHardwareAdapter(factory.Get(), &hardwareAdapter);  
@@ -196,8 +184,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
 
             // Describe and create the swap chain.
-            var swapChainDesc = new SwapChainDescription1
-            {
+            var swapChainDesc = new SwapChainDescription1 {
                 BufferCount = FrameCount,
                 Width = Width,
                 Height = Height,
@@ -208,15 +195,14 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             };
 
             // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
+            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
                 // Describe and create a render target view (RTV) descriptor heap.
-                var rtvHeapDesc = new DescriptorHeapDescription
-                {
+                var rtvHeapDesc = new DescriptorHeapDescription {
                     DescriptorCount = FrameCount,
                     Type = DescriptorHeapType.RenderTargetView,
                     Flags = DescriptorHeapFlags.None,
@@ -231,8 +217,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
                 CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart();
 
                 // Create a RTV and a command allocator for each frame.
-                for (int n = 0; n < FrameCount; n++)
-                {
+                for (int n = 0; n < FrameCount; n++) {
                     mRenderTargets[n] = mSwapChain.GetBuffer<ID3D12Resource>(n);
 
                     mDevice.CreateRenderTargetView(mRenderTargets[n], null, rtvHandle);
@@ -246,12 +231,10 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         /// <summary>
         /// Load the sample assets
         /// </summary>
-        void LoadAssets()
-        {
+        void LoadAssets() {
             // Create an empty root signature. (NOTE: Original sample made no references to the VersionedRootSignatureDescription I use here, so this isn't an exact port)
             {
-                var rootSignatureDesc = new RootSignatureDescription1
-                {
+                var rootSignatureDesc = new RootSignatureDescription1 {
                     Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
                 };
                 mRootSignature = mDevice.CreateRootSignature(0, new VersionedRootSignatureDescription(rootSignatureDesc));
@@ -276,8 +259,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
                 };
 
                 // Describe and create the graphics pipeline state object (PSO).
-                var psoDesc = new GraphicsPipelineStateDescription
-                {
+                var psoDesc = new GraphicsPipelineStateDescription {
                     InputLayout = new InputLayoutDescription(inputElementDescs),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
@@ -345,8 +327,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             }
         }
 
-        void PopulateCommandList()
-        {
+        void PopulateCommandList() {
             // Command list allocators can only be reset when the associated 
             // command lists have finished execution on the GPU; apps should use 
             // fences to determine GPU execution progress.
@@ -382,8 +363,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         }
 
         // Wait for pending GPU work to complete.
-        void WaitForGpu()
-        {
+        void WaitForGpu() {
             // Schedule a Signal command in the queue.
             mCommandQueue.Signal(mFence, mFenceValues[mFrameIndex]);
 
@@ -397,8 +377,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
         }
 
         // Prepare to render the next frame.
-        void MoveToNextFrame()
-        {
+        void MoveToNextFrame() {
             // Schedule a Signal command in the queue.
             ulong currentFenceValue = mFenceValues[mFrameIndex];
             mCommandQueue.Signal(mFence, currentFenceValue);
@@ -407,8 +386,7 @@ namespace D3D12HelloWorld.HelloFrameBuffering {
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // If the next frame is not ready to be rendered yet, wait until it is ready.
-            if (mFence.CompletedValue < mFenceValues[mFrameIndex])
-            {
+            if (mFence.CompletedValue < mFenceValues[mFrameIndex]) {
                 mFenceEvent.Reset();
                 mFence.SetEventOnCompletion(mFenceValues[mFrameIndex], mFenceEvent).CheckError();
                 mFenceEvent.WaitOne();
