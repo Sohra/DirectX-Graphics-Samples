@@ -4,8 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Vortice.Direct3D12;
+using wired.Graphics;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Rendering {
     public class ShaderGeneratorContext {
         readonly GraphicsDevice mDevice;
         readonly ShaderGeneratorSettings mSettings;

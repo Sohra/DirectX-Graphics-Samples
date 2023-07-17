@@ -1,5 +1,5 @@
-﻿using D3D12HelloWorld.Rendering;
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
+using Serilog;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
@@ -15,23 +15,27 @@ using Vortice.Direct3D12;
 using Vortice.Direct3D12.Debug;
 using Vortice.DXGI;
 using Vortice.Mathematics;
+using wired;
+using wired.Assets;
+using wired.Graphics;
+using wired.Rendering;
 
 namespace D3D12HelloWorld.HelloTexture {
     /// <summary>
     /// https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/D3D12HelloTexture.cpp
     /// </summary>
-    public partial class D3D12HelloTexture : Form
-    {
+    public partial class D3D12HelloTexture : Form {
         const int FrameCount = 2;
         const int TextureWidth = 256;
         const int TextureHeight = 256;
         const int TexturePixelSize = 4;  // The number of bytes used to represent a pixel in the texture.
 
-        struct Vertex
-        {
+        struct Vertex {
             public Vector3 Position;
             public Vector2 TexCoord;
         };
+
+        readonly ILogger mLogger;
 
         //DXSample - Viewport dimensions
         float mAspectRatio;
@@ -70,16 +74,17 @@ namespace D3D12HelloWorld.HelloTexture {
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
 
-        public D3D12HelloTexture() : this(1200, 900, string.Empty)
-        {
+        public D3D12HelloTexture() : this(1200, 900, string.Empty, Log.Logger) {
         }
 
-        public D3D12HelloTexture(uint width, uint height, string name)
-        {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
+        public D3D12HelloTexture(uint width, uint height, string name, ILogger logger) {
             InitializeComponent();
 
             Width = Convert.ToInt32(width);
             Height = Convert.ToInt32(height);
+            mLogger = logger ?? throw new ArgumentNullException(nameof(logger));
+
             if (!string.IsNullOrEmpty(name))
                 Text = name;
 
@@ -94,19 +99,17 @@ namespace D3D12HelloWorld.HelloTexture {
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
             this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
-        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e)
-        {
-            lock (mTickLock)
-            {
+        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
+            lock (mTickLock) {
                 OnUpdate();
 
                 OnRender();
             }
         }
 
-        public virtual void OnInit()
-        {
+        public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
         }
@@ -114,15 +117,13 @@ namespace D3D12HelloWorld.HelloTexture {
         /// <summary>
         /// Update frame-based values
         /// </summary>
-        public virtual void OnUpdate()
-        {
+        public virtual void OnUpdate() {
         }
 
         /// <summary>
         /// Render the scene
         /// </summary>
-        public virtual void OnRender()
-        {
+        public virtual void OnRender() {
             // Record all the commands we need to render the scene into the command list.
             PopulateCommandList();
 
@@ -137,8 +138,7 @@ namespace D3D12HelloWorld.HelloTexture {
             WaitForPreviousFrame();
         }
 
-        public virtual void OnDestroy()
-        {
+        public virtual void OnDestroy() {
             // Ensure that the GPU is no longer referencing resources that are about to be
             // cleaned up by the destructor.
             WaitForPreviousFrame();
@@ -150,8 +150,7 @@ namespace D3D12HelloWorld.HelloTexture {
         /// <summary>
         /// Load the rendering pipeline dependencies.
         /// </summary>
-        void LoadPipeline()
-        {
+        void LoadPipeline() {
             bool dxgiFactoryDebugMode = false; //int dxgiFactoryFlags = 0;
 
 #if DEBUG
@@ -160,8 +159,7 @@ namespace D3D12HelloWorld.HelloTexture {
             {
                 Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug? debugController);
 
-                if (debugResult.Success)
-                {
+                if (debugResult.Success) {
                     ID3D12Debug1 debug = debugController!.QueryInterface<ID3D12Debug1>();
 
                     debug.EnableDebugLayer();
@@ -175,16 +173,14 @@ namespace D3D12HelloWorld.HelloTexture {
 
             DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4? factory);
 
-            if (mUseWarpDevice)
-            {
+            if (mUseWarpDevice) {
                 Result warpResult = factory!.EnumWarpAdapter(out IDXGIAdapter? warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
                 mDevice = D3D12.D3D12CreateDevice<ID3D12Device>(warpAdapter, Vortice.Direct3D.FeatureLevel.Level_11_0);
             }
-            else
-            {
+            else {
                 IDXGIAdapter1? hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
@@ -197,8 +193,7 @@ namespace D3D12HelloWorld.HelloTexture {
             mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
 
             // Describe and create the swap chain.
-            var swapChainDesc = new SwapChainDescription1
-            {
+            var swapChainDesc = new SwapChainDescription1 {
                 BufferCount = FrameCount,
                 Width = Width,
                 Height = Height,
@@ -216,8 +211,7 @@ namespace D3D12HelloWorld.HelloTexture {
             // Create descriptor heaps.
             {
                 // Describe and create a render target view (RTV) descriptor heap.
-                var rtvHeapDesc = new DescriptorHeapDescription
-                {
+                var rtvHeapDesc = new DescriptorHeapDescription {
                     DescriptorCount = FrameCount,
                     Type = DescriptorHeapType.RenderTargetView,
                     Flags = DescriptorHeapFlags.None,
@@ -225,8 +219,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 mRtvHeap = mDevice.CreateDescriptorHeap(rtvHeapDesc);
 
                 // Describe and create a shader resource view (SRV) heap for the texture.
-                var srvHeapDesc = new DescriptorHeapDescription
-                {
+                var srvHeapDesc = new DescriptorHeapDescription {
                     DescriptorCount = 1,
                     Type = DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
                     Flags = DescriptorHeapFlags.ShaderVisible,
@@ -241,8 +234,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart();
 
                 // Create a RTV for each frame.
-                for (int n = 0; n < FrameCount; n++)
-                {
+                for (int n = 0; n < FrameCount; n++) {
                     mRenderTargets[n] = mSwapChain.GetBuffer<ID3D12Resource>(n);
 
                     mDevice.CreateRenderTargetView(mRenderTargets[n], null, rtvHandle);
@@ -256,13 +248,11 @@ namespace D3D12HelloWorld.HelloTexture {
         /// <summary>
         /// Load the sample assets
         /// </summary>
-        void LoadAssets()
-        {
+        void LoadAssets() {
             // Create the root signature.
             {
                 var highestVersion = mDevice.CheckHighestRootSignatureVersion(RootSignatureVersion.Version11);
-                var sampler = new StaticSamplerDescription
-                {
+                var sampler = new StaticSamplerDescription {
                     Filter = Filter.MinMagMipPoint,
                     AddressU = TextureAddressMode.Border,
                     AddressV = TextureAddressMode.Border,
@@ -278,12 +268,10 @@ namespace D3D12HelloWorld.HelloTexture {
                     ShaderVisibility = ShaderVisibility.Pixel,
                 };
                 VersionedRootSignatureDescription rootSignatureDesc;
-                switch (highestVersion)
-                {
+                switch (highestVersion) {
                     case RootSignatureVersion.Version11:
                         var range1 = new DescriptorRange1(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1, DescriptorRangeFlags.DataStatic); //I guess the -1 offset corresponds to D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND but have yet to successfully confirm it
-                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription1
-                        {
+                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription1 {
                             Parameters = new[] { new RootParameter1(new RootDescriptorTable1(range1), ShaderVisibility.Pixel) },
                             StaticSamplers = new[] { sampler },
                             Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
@@ -293,8 +281,7 @@ namespace D3D12HelloWorld.HelloTexture {
                     case RootSignatureVersion.Version10:
                     default:
                         var range = new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1); //I guess the -1 offset corresponds to D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND but have yet to successfully confirm it
-                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription
-                        {
+                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription {
                             Parameters = new[] { new RootParameter(new RootDescriptorTable(range), ShaderVisibility.Pixel) },
                             StaticSamplers = new[] { sampler },
                             Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
@@ -324,8 +311,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 };
 
                 // Describe and create the graphics pipeline state object (PSO).
-                var psoDesc = new GraphicsPipelineStateDescription
-                {
+                var psoDesc = new GraphicsPipelineStateDescription {
                     InputLayout = new InputLayoutDescription(inputElementDescs),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
@@ -347,7 +333,7 @@ namespace D3D12HelloWorld.HelloTexture {
 
             // Create the vertex buffer.
             {
-                var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice), @"..\..\..\Mutiny\Models\cannon_boss.X");
+                var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice, mLogger), @"..\..\..\Mutiny\Models\cannon_boss.X");
                 (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
                     = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
 
@@ -449,8 +435,7 @@ namespace D3D12HelloWorld.HelloTexture {
                 mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mTexture, ResourceStates.CopyDest, ResourceStates.PixelShaderResource));
 
                 // Describe and create a SRV for the texture.
-                var srvDesc = new ShaderResourceViewDescription
-                {
+                var srvDesc = new ShaderResourceViewDescription {
                     Shader4ComponentMapping = ShaderComponentMapping.DefaultComponentMapping(), //D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,  //i.e. default 1:1 mapping
                     Format = textureDesc.Format,
                     ViewDimension = ShaderResourceViewDimension.Texture2D,
@@ -482,30 +467,26 @@ namespace D3D12HelloWorld.HelloTexture {
         /// Generate a simple black and white checkerboard texture.
         /// </summary>
         /// <returns></returns>
-        Span<byte> GenerateTextureData()
-        {
+        Span<byte> GenerateTextureData() {
             var rowPitch = TextureWidth * TexturePixelSize;
             var cellPitch = rowPitch >> 3;        // The width of a cell in the checkboard texture.
             var cellHeight = TextureWidth >> 3;    // The height of a cell in the checkerboard texture.
             var textureSize = rowPitch * TextureHeight;
 
             var data = new byte[textureSize];
-            for (uint n = 0; n < textureSize; n += TexturePixelSize)
-            {
+            for (uint n = 0; n < textureSize; n += TexturePixelSize) {
                 var x = n % rowPitch;
                 var y = n / rowPitch;
                 var i = x / cellPitch;
                 var j = y / cellHeight;
 
-                if (i % 2 == j % 2)
-                {
+                if (i % 2 == j % 2) {
                     data[n] = 0x00;        // R
                     data[n + 1] = 0x00;    // G
                     data[n + 2] = 0x00;    // B
                     data[n + 3] = 0xff;    // A
                 }
-                else
-                {
+                else {
                     data[n] = 0xff;        // R
                     data[n + 1] = 0xff;    // G
                     data[n + 2] = 0xff;    // B
@@ -516,8 +497,7 @@ namespace D3D12HelloWorld.HelloTexture {
             return data.AsSpan();
         }
 
-        void PopulateCommandList()
-        {
+        void PopulateCommandList() {
             // Command list allocators can only be reset when the associated 
             // command lists have finished execution on the GPU; apps should use 
             // fences to determine GPU execution progress.
@@ -560,8 +540,7 @@ namespace D3D12HelloWorld.HelloTexture {
             mCommandList.Close();
         }
 
-        void WaitForPreviousFrame()
-        {
+        void WaitForPreviousFrame() {
             // WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
             // This is code implemented as such for simplicity. The D3D12HelloFrameBuffering
             // sample illustrates how to use fences for efficient resource usage and to
@@ -573,8 +552,7 @@ namespace D3D12HelloWorld.HelloTexture {
             mFenceValue++;
 
             // Wait until the previous frame is finished.
-            if (mFence.CompletedValue < fence)
-            {
+            if (mFence.CompletedValue < fence) {
                 mFenceEvent.Reset();
                 mFence.SetEventOnCompletion(fence, mFenceEvent).CheckError();
                 mFenceEvent.WaitOne();

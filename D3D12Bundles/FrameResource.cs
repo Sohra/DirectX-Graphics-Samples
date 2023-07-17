@@ -2,12 +2,12 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Vortice.Direct3D12;
+using wired.Graphics;
 
 namespace D3D12Bundles {
     internal class FrameResource : IDisposable {
         internal ID3D12CommandAllocator mCommandAllocator;
-        ID3D12CommandAllocator mBundleAllocator;
-        internal ID3D12GraphicsCommandList mBundle;
+        internal CompiledCommandList? mBundle;
         internal ID3D12Resource mCbvUploadHeap;
         IntPtr mpConstantBuffers;
         internal ulong mFenceValue;
@@ -15,7 +15,7 @@ namespace D3D12Bundles {
         readonly Matrix4x4[] mModelMatrices;
         readonly int mCityRowCount;
         readonly int mCityColumnCount;
-        private bool mDisposedValue;
+        private bool mIsDisposed;
 
         public unsafe struct SceneConstantBuffer {
             public Matrix4x4 mvp; //Model-view-projection (MVP) matrix;
@@ -39,7 +39,6 @@ namespace D3D12Bundles {
             // cannot be reused until the GPU is done executing the commands 
             // associated with it.
             mCommandAllocator = device.CreateCommandAllocator(CommandListType.Direct);
-            mBundleAllocator = device.CreateCommandAllocator(CommandListType.Bundle);
 
             // Create an upload heap for the constant buffers.
             mCbvUploadHeap = device.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
@@ -65,17 +64,19 @@ namespace D3D12Bundles {
         }
 
         protected virtual void Dispose(bool disposing) {
-            if (!mDisposedValue) {
+            if (!mIsDisposed) {
                 if (disposing) {
                     // dispose managed state (managed objects)
+                    mBundle?.Builder.Dispose();
                     mCbvUploadHeap.Unmap(0, null);
                 }
 
                 // free unmanaged resources (unmanaged objects) and override finalizer
                 mpConstantBuffers = IntPtr.Zero;
 
-                // TODO: set large fields to null
-                mDisposedValue = true;
+                // set large fields to null
+                mBundle = null;
+                mIsDisposed = true;
             }
         }
 
@@ -90,29 +91,27 @@ namespace D3D12Bundles {
             GC.SuppressFinalize(this);
         }
 
-        public void InitBundle(ID3D12Device device, ID3D12PipelineState pso1, ID3D12PipelineState pso2, int frameResourceIndex, int numIndices, IndexBufferView? indexBufferViewDesc,
+        public void InitBundle(GraphicsDevice device, PipelineState pso1, PipelineState pso2, int frameResourceIndex, int numIndices, IndexBufferView? indexBufferViewDesc,
                                VertexBufferView vertexBufferViewDesc, ID3D12DescriptorHeap cbvSrvDescriptorHeap, int cbvSrvDescriptorSize, ID3D12DescriptorHeap samplerDescriptorHeap, ID3D12RootSignature rootSignature) {
-            mBundle = device.CreateCommandList<ID3D12GraphicsCommandList>(0, CommandListType.Bundle, mBundleAllocator, pso1);
-            mBundle.Name = nameof(mBundle);
+            var bundle = new CommandList(device, CommandListType.Bundle, pso1); 
 
-            PopulateCommandList(mBundle, pso1, pso2, frameResourceIndex, numIndices, indexBufferViewDesc,
+            PopulateCommandList(bundle, pso1, pso2, frameResourceIndex, numIndices, indexBufferViewDesc,
                                 vertexBufferViewDesc, cbvSrvDescriptorHeap, cbvSrvDescriptorSize, samplerDescriptorHeap, rootSignature);
 
-            mBundle.Close();
+            mBundle = bundle.Close();
         }
 
-        public void PopulateCommandList(ID3D12GraphicsCommandList commandList, ID3D12PipelineState pso1, ID3D12PipelineState pso2, int frameResourceIndex,
+        public void PopulateCommandList(CommandList commandList, PipelineState pso1, PipelineState pso2, int frameResourceIndex,
                                         int numIndices, IndexBufferView? indexBufferViewDesc, VertexBufferView vertexBufferViewDesc,
                                         ID3D12DescriptorHeap cbvSrvDescriptorHeap, int cbvSrvDescriptorSize,
                                         ID3D12DescriptorHeap samplerDescriptorHeap, ID3D12RootSignature rootSignature) {
             // If the root signature matches the root signature of the caller, then
             // bindings are inherited, otherwise the bind space is reset.
-            commandList.SetGraphicsRootSignature(rootSignature);
+            commandList.SetNecessaryState(rootSignature, cbvSrvDescriptorHeap, samplerDescriptorHeap);
 
-            commandList.SetDescriptorHeaps(new[] { cbvSrvDescriptorHeap, samplerDescriptorHeap });
-            commandList.IASetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-            commandList.IASetIndexBuffer(indexBufferViewDesc);
-            commandList.IASetVertexBuffers(0, vertexBufferViewDesc);
+            commandList.SetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
+            commandList.SetIndexBuffer(indexBufferViewDesc);
+            commandList.SetVertexBuffers(0, vertexBufferViewDesc);
             commandList.SetGraphicsRootDescriptorTable(0, cbvSrvDescriptorHeap.GetGPUDescriptorHandleForHeapStart());
             commandList.SetGraphicsRootDescriptorTable(1, samplerDescriptorHeap.GetGPUDescriptorHandleForHeapStart());
 

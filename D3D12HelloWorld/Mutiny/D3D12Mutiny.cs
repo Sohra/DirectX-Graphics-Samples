@@ -1,5 +1,4 @@
-﻿using D3D12HelloWorld.Rendering;
-using Serilog;
+﻿using Serilog;
 using SharpGen.Runtime;
 using System;
 using System.Collections.Generic;
@@ -14,10 +13,15 @@ using Vortice;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 using Vortice.Mathematics;
+using wired.Assets;
+using wired.Graphics;
+using wired.Rendering;
 
 namespace D3D12HelloWorld.Mutiny {
     public partial class D3D12Mutiny : Form {
         const int FrameCount = 2;
+
+        readonly ILogger mLogger;
 
         //Viewport dimensions
         float mAspectRatio;
@@ -57,14 +61,17 @@ namespace D3D12HelloWorld.Mutiny {
         //GameBase
         private readonly object mTickLock = new object();
 
-        public D3D12Mutiny() : this(1200, 900, string.Empty) {
+        public D3D12Mutiny() : this(1200, 900, string.Empty, Log.Logger) {
         }
 
-        public D3D12Mutiny(uint width, uint height, string name) {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
+        public D3D12Mutiny(uint width, uint height, string name, ILogger logger) {
             InitializeComponent();
 
             Width = Convert.ToInt32(width);
             Height = Convert.ToInt32(height);
+            mLogger = logger ?? throw new ArgumentNullException(nameof(logger));
+
             if (!string.IsNullOrEmpty(name))
                 Text = name;
 
@@ -80,6 +87,7 @@ namespace D3D12HelloWorld.Mutiny {
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
             this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
             lock (mTickLock) {
@@ -271,7 +279,7 @@ namespace D3D12HelloWorld.Mutiny {
             //var featureLevel = mDevice.CheckMaxSupportedFeatureLevel();
 
             //Rather than just a command queue, use the GraphicsDevice abstraction which creates CommandQueues and the CommandList, and an associated CommandAllocator
-            mGraphicsDevice = new GraphicsDevice(mDevice);
+            mGraphicsDevice = new GraphicsDevice(mDevice, mLogger);
 
             // Describe and create the swap chain.
             var backBufferFormat = Format.R8G8B8A8_UNorm;
@@ -310,7 +318,7 @@ namespace D3D12HelloWorld.Mutiny {
                 var renderTargets = new RenderTargetView[FrameCount];
                 for (int n = 0; n < swapChainDesc.BufferCount; n++) {
                     var renderTargetTexture = new Texture(mGraphicsDevice, mSwapChain.GetBuffer<ID3D12Resource>(n));
-                    renderTargets[n] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap, backBufferFormat);
+                    renderTargets[n] = RenderTargetView.FromTexture2D(renderTargetTexture, mRtvHeap);
 
 
                     mCommandAllocators[n] = mDevice.CreateCommandAllocator(CommandListType.Direct);

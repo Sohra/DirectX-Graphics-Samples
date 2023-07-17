@@ -3,11 +3,12 @@ using System.Runtime.CompilerServices;
 using Vortice.Direct3D12;
 using Vortice.DXGI;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Graphics {
     public class GraphicsResource : IDisposable {
         ConstantBufferView? defaultConstantBufferView;
 
-        public GraphicsResource(GraphicsDevice device, ResourceDescription description, HeapType heapType) : this(device, CreateResource(device, description, heapType)) {
+        public GraphicsResource(GraphicsDevice device, ResourceDescription description, HeapType heapType)
+            : this(device, CreateResource(device, description, heapType)) {
         }
 
         internal GraphicsResource(GraphicsDevice device, ID3D12Resource resource) {
@@ -162,7 +163,7 @@ namespace D3D12HelloWorld.Rendering {
             }
             else if (Dimension == ResourceDimension.Texture2D) {
                 ID3D12Resource uploadResource = GraphicsDevice.NativeDevice.CreateCommittedResource(new HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), HeapFlags.None, NativeResource.Description, ResourceStates.CopyDest);
-                using var textureUploadBuffer = new Texture(GraphicsDevice, uploadResource);
+                using var textureUploadBuffer = new Texture(GraphicsDevice, uploadResource, "textureUploadBuffer");
 
                 textureUploadBuffer.NativeResource.WriteToSubresource(0, data, (int)Width * 4, (int)Width * Height * 4);
 

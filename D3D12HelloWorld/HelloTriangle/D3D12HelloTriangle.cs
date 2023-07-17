@@ -17,12 +17,10 @@ namespace D3D12HelloWorld.HelloTriangle {
     /// <summary>
     /// https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/D3D12HelloTriangle.cpp
     /// </summary>
-    public partial class D3D12HelloTriangle : Form
-    {
+    public partial class D3D12HelloTriangle : Form {
         const int FrameCount = 2;
 
-        struct Vertex
-        {
+        struct Vertex {
             public Vector3 Position;
             public Color4 Colour;
         };
@@ -60,12 +58,11 @@ namespace D3D12HelloWorld.HelloTriangle {
         //DX12GE - GameBase
         private readonly object mTickLock = new object();
 
-        public D3D12HelloTriangle() : this(1200, 900, string.Empty)
-        {
+        public D3D12HelloTriangle() : this(1200, 900, string.Empty) {
         }
 
-        public D3D12HelloTriangle(uint width, uint height, string name)
-        {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
+        public D3D12HelloTriangle(uint width, uint height, string name) {
             InitializeComponent();
 
             Width = Convert.ToInt32(width);
@@ -82,21 +79,19 @@ namespace D3D12HelloWorld.HelloTriangle {
             OnInit();
 
             CompositionTarget.Rendering += HandleCompositionTarget_Rendering;
-            this.FormClosing += (object sender, FormClosingEventArgs e) => OnDestroy();
+            this.FormClosing += (object? sender, FormClosingEventArgs e) => OnDestroy();
         }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
-        private void HandleCompositionTarget_Rendering(object sender, EventArgs e)
-        {
-            lock (mTickLock)
-            {
+        private void HandleCompositionTarget_Rendering(object? sender, EventArgs e) {
+            lock (mTickLock) {
                 OnUpdate();
 
                 OnRender();
             }
         }
 
-        public virtual void OnInit()
-        {
+        public virtual void OnInit() {
             LoadPipeline();
             LoadAssets();
         }
@@ -104,15 +99,13 @@ namespace D3D12HelloWorld.HelloTriangle {
         /// <summary>
         /// Update frame-based values
         /// </summary>
-        public virtual void OnUpdate()
-        {
+        public virtual void OnUpdate() {
         }
 
         /// <summary>
         /// Render the scene
         /// </summary>
-        public virtual void OnRender()
-        {
+        public virtual void OnRender() {
             // Record all the commands we need to render the scene into the command list.
             PopulateCommandList();
 
@@ -127,8 +120,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             WaitForPreviousFrame();
         }
 
-        public virtual void OnDestroy()
-        {
+        public virtual void OnDestroy() {
             // Ensure that the GPU is no longer referencing resources that are about to be
             // cleaned up by the destructor.
             WaitForPreviousFrame();
@@ -140,19 +132,16 @@ namespace D3D12HelloWorld.HelloTriangle {
         /// <summary>
         /// Load the rendering pipeline dependencies.
         /// </summary>
-        void LoadPipeline()
-        {
+        void LoadPipeline() {
             bool dxgiFactoryDebugMode = false; //int dxgiFactoryFlags = 0;
 
 #if DEBUG
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             // NOTE: Enabling the debug layer after device creation will invalidate the active device.
             {
-                Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug debugController);
-
-                if (debugResult.Success)
-                {
-                    ID3D12Debug1 debug = debugController.QueryInterface<ID3D12Debug1>();
+                Result debugResult = D3D12.D3D12GetDebugInterface(out ID3D12Debug? debugController);
+                if (debugResult.Success) {
+                    ID3D12Debug1 debug = debugController!.QueryInterface<ID3D12Debug1>();
 
                     debug.EnableDebugLayer();
 
@@ -163,19 +152,17 @@ namespace D3D12HelloWorld.HelloTriangle {
             }
 #endif
 
-            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4 factory);
+            DXGI.CreateDXGIFactory2(dxgiFactoryDebugMode, out IDXGIFactory4? factory).CheckError();
 
-            if (mUseWarpDevice)
-            {
-                Result warpResult = factory.EnumWarpAdapter(out IDXGIAdapter warpAdapter);
+            if (mUseWarpDevice) {
+                Result warpResult = factory!.EnumWarpAdapter(out IDXGIAdapter? warpAdapter);
                 if (warpResult.Failure)
                     throw new COMException("EnumWarpAdaptor creation failed", warpResult.Code);
 
                 mDevice = D3D12.D3D12CreateDevice<ID3D12Device>(warpAdapter, Vortice.Direct3D.FeatureLevel.Level_11_0);
             }
-            else
-            {
-                IDXGIAdapter1 hardwareAdapter = null;
+            else {
+                IDXGIAdapter1? hardwareAdapter = null;
                 //We could pull this from https://github.com/microsoft/DirectX-Graphics-Samples/blob/3e8b39eba5facbaa3cd26d4196452987ac34499d/Samples/UWP/D3D12HelloWorld/src/HelloTriangle/DXSample.cpp#L43
                 //But for now, leave it up to Vortice to figure out...
                 //GetHardwareAdapter(factory.Get(), &hardwareAdapter);  
@@ -187,8 +174,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             mCommandQueue = mDevice.CreateCommandQueue(new CommandQueueDescription(CommandListType.Direct));
 
             // Describe and create the swap chain.
-            var swapChainDesc = new SwapChainDescription1
-            {
+            var swapChainDesc = new SwapChainDescription1 {
                 BufferCount = FrameCount,
                 Width = Width,
                 Height = Height,
@@ -199,15 +185,14 @@ namespace D3D12HelloWorld.HelloTriangle {
             };
 
             // Swap chain needs the queue so that it can force a flush on it.
-            using IDXGISwapChain1 swapChain = factory.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
+            using IDXGISwapChain1 swapChain = factory!.CreateSwapChainForHwnd(mCommandQueue, base.Handle, swapChainDesc);
             mSwapChain = swapChain.QueryInterface<IDXGISwapChain3>();
             mFrameIndex = mSwapChain.CurrentBackBufferIndex;
 
             // Create descriptor heaps.
             {
                 // Describe and create a render target view (RTV) descriptor heap.
-                var rtvHeapDesc = new DescriptorHeapDescription
-                {
+                var rtvHeapDesc = new DescriptorHeapDescription {
                     DescriptorCount = FrameCount,
                     Type = DescriptorHeapType.RenderTargetView,
                     Flags = DescriptorHeapFlags.None,
@@ -222,8 +207,7 @@ namespace D3D12HelloWorld.HelloTriangle {
                 CpuDescriptorHandle rtvHandle = mRtvHeap.GetCPUDescriptorHandleForHeapStart();
 
                 // Create a RTV for each frame.
-                for (int n = 0; n < FrameCount; n++)
-                {
+                for (int n = 0; n < FrameCount; n++) {
                     mRenderTargets[n] = mSwapChain.GetBuffer<ID3D12Resource>(n);
 
                     mDevice.CreateRenderTargetView(mRenderTargets[n], null, rtvHandle);
@@ -237,12 +221,10 @@ namespace D3D12HelloWorld.HelloTriangle {
         /// <summary>
         /// Load the sample assets
         /// </summary>
-        void LoadAssets()
-        {
+        void LoadAssets() {
             // Create an empty root signature. (NOTE: Original sample made no references to the VersionedRootSignatureDescription I use here, so this isn't an exact port)
             {
-                var rootSignatureDesc = new RootSignatureDescription1
-                {
+                var rootSignatureDesc = new RootSignatureDescription1 {
                     Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
                 };
                 mRootSignature = mDevice.CreateRootSignature(0, new VersionedRootSignatureDescription(rootSignatureDesc));
@@ -287,8 +269,7 @@ namespace D3D12HelloWorld.HelloTriangle {
                 };
 
                 // Describe and create the graphics pipeline state object (PSO).
-                var psoDesc = new GraphicsPipelineStateDescription
-                {
+                var psoDesc = new GraphicsPipelineStateDescription {
                     InputLayout = new InputLayoutDescription(inputElementDescs),
                     RootSignature = mRootSignature,
                     VertexShader = vertexShader,
@@ -391,8 +372,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             mCommandList.Close();
         }
 
-        void WaitForPreviousFrame()
-        {
+        void WaitForPreviousFrame() {
             // WAITING FOR THE FRAME TO COMPLETE BEFORE CONTINUING IS NOT BEST PRACTICE.
             // This is code implemented as such for simplicity. The D3D12HelloFrameBuffering
             // sample illustrates how to use fences for efficient resource usage and to
@@ -404,8 +384,7 @@ namespace D3D12HelloWorld.HelloTriangle {
             mFenceValue++;
 
             // Wait until the previous frame is finished.
-            if (mFence.CompletedValue < fence)
-            {
+            if (mFence.CompletedValue < fence) {
                 mFenceEvent.Reset();
                 mFence.SetEventOnCompletion(fence, mFenceEvent).CheckError();
                 mFenceEvent.WaitOne();

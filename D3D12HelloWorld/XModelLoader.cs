@@ -1,5 +1,4 @@
-﻿using D3D12HelloWorld.Rendering;
-using DirectX12GameEngine.Shaders;
+﻿using DirectX12GameEngine.Shaders;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,10 +9,12 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using Vortice.Direct3D12;
-using static D3D12HelloWorld.StringExtensions;
+using wired.Graphics;
+using wired.Rendering;
+using static wired.Assets.StringExtensions;
 using Format = Vortice.DXGI.Format;
 
-namespace D3D12HelloWorld {
+namespace wired.Assets {
     class XModelLoader {
         readonly GraphicsDevice mDevice;
         readonly IDictionary<Mesh, Matrix4x4> mFrames;
@@ -444,7 +445,7 @@ namespace D3D12HelloWorld {
                 };
                 var model = new Model();
                 model.Materials.Add(material);
-                model.Meshes.Add(new Rendering.Mesh(meshDraw) { MaterialIndex = 0, WorldMatrix = primitiveWorldMatrix });
+                model.Meshes.Add(new wired.Rendering.Mesh(meshDraw) { MaterialIndex = 0, WorldMatrix = primitiveWorldMatrix });
                 meshes.Add((indexBuffer, vertexBuffer, context.ShaderResourceViews, model));
             }
 
@@ -716,10 +717,10 @@ namespace D3D12HelloWorld {
     /// Based on https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/Samples/UWP/D3D12HelloWorld/src/HelloTexture/shaders.hlsl
     /// </summary>
     class TextureShader : IShader {
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
         public TextureShader(Texture? texture, bool convertToLinear = false) {
             Texture = texture;
             ConvertToLinear = convertToLinear;
-            ColorTexture = null!;
         }
 
         [IgnoreShaderMember]
@@ -729,10 +730,11 @@ namespace D3D12HelloWorld {
         public bool ConvertToLinear { get; set; }
 
         [ShaderMember]
-        public readonly SamplerState? Sampler;
+        public SamplerState Sampler { get; set; }
 
         [ShaderMember]
-        public Texture2D ColorTexture { get; private set; }
+        public Texture2D ColorTexture { get; set; }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         [Shader("vertex")]
         [ShaderMethod]
@@ -752,7 +754,7 @@ namespace D3D12HelloWorld {
         [ShaderMethod]
         [return: SystemTargetSemantic]
         public Vector4 PSMain(PSTVInput input) {
-            return ColorTexture.Sample(Sampler!, input.UV);
+            return ColorTexture.Sample(Sampler, input.UV);
         }
 
         public void Accept(ShaderGeneratorContext context) {

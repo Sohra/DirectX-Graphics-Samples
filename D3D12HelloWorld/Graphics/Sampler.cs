@@ -1,6 +1,6 @@
 ﻿using Vortice.Direct3D12;
 
-namespace D3D12HelloWorld.Rendering {
+namespace wired.Graphics {
     public class Sampler {
         SamplerDescription mDescription;
 

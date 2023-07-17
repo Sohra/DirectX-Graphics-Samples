@@ -1,7 +1,7 @@
 ﻿using System;
 using Vortice.Direct3D12;
 
-namespace D3D12HelloWorld {
+namespace wired {
     static class MemoryExtensions {
         public static unsafe void CopyTo<T>(this Span<T> source, IntPtr destination) where T : unmanaged {
             source.CopyTo(new Span<T>(destination.ToPointer(), source.Length));
