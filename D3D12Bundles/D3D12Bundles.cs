@@ -67,8 +67,6 @@ namespace D3D12Bundles {
         GraphicsPresenter mPresenter;
         GraphicsDevice mGraphicsDevice;
         ID3D12RootSignature mRootSignature;
-        DescriptorAllocator mCbvSrvHeap;
-        DescriptorAllocator mSamplerHeap;
         PipelineState mPipelineState1;
         PipelineState mPipelineState2;
 
@@ -76,9 +74,10 @@ namespace D3D12Bundles {
         int mNumIndices;
         ID3D12Resource mVertexBuffer;
         ID3D12Resource mIndexBuffer;
-        Texture mTexture;
         VertexBufferView mVertexBufferView;
         IndexBufferView? mIndexBufferView;
+        Texture mTexture;
+        Sampler mDefaultSampler;
         StepTimer mTimer;
         SimpleCamera mCamera;
 
@@ -312,20 +311,6 @@ namespace D3D12Bundles {
                 DepthStencilFormat = Format.D32_Float,
             };
             mPresenter = new HwndSwapChainGraphicsPresenter(factory!, mGraphicsDevice, FrameCount, presentationParameters, base.Handle);
-
-            // Create descriptor heaps.
-            {
-                // Describe and create a shader resource view (SRV) and constant buffer view (CBV) descriptor heap.
-                var descriptorCount = FrameCount * CityRowCount * CityColumnCount  // FrameCount frames * CityRowCount * CityColumnCount
-                                    + 1;                                           // + 1 for the SRV.
-                mCbvSrvHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-                                                      descriptorCount, DescriptorHeapFlags.ShaderVisible);
-                mCbvSrvHeap.DescriptorHeap.Name = nameof(mCbvSrvHeap);
-
-
-                // Describe and create a sampler descriptor heap.
-                mSamplerHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.Sampler, 1, DescriptorHeapFlags.ShaderVisible);
-            }
         }
 
         /// <summary>
@@ -550,7 +535,7 @@ namespace D3D12Bundles {
                     MinLOD = 0.0f,
                     MaxLOD = 0.0f,
                 };
-                mGraphicsDevice.NativeDevice.CreateSampler(ref samplerDesc, mSamplerHeap.DescriptorHeap.GetCPUDescriptorHandleForHeapStart());
+                mDefaultSampler = new Sampler(mGraphicsDevice.NativeDevice, mGraphicsDevice.ShaderVisibleSamplerAllocator, samplerDesc);
                 
                 // Describe and create a SRV for the texture.
                 var srvDesc = new ShaderResourceViewDescription {
@@ -559,7 +544,7 @@ namespace D3D12Bundles {
                     ViewDimension = ShaderResourceViewDimension.Texture2D,
                 };
                 srvDesc.Texture2D.MipLevels = 1;
-                mGraphicsDevice.NativeDevice.CreateShaderResourceView(mTexture.NativeResource, srvDesc, mCbvSrvHeap.Allocate(1));
+                mGraphicsDevice.NativeDevice.CreateShaderResourceView(mTexture.NativeResource, srvDesc, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.Allocate(1));
             }
 
             // Close the command list and execute it to begin the initial GPU setup.
@@ -589,12 +574,12 @@ namespace D3D12Bundles {
                             SizeInBytes = Unsafe.SizeOf<FrameResource.SceneConstantBuffer>()
                         };
                         cbOffset += (ulong)cbvDesc.SizeInBytes;
-                        mGraphicsDevice.NativeDevice.CreateConstantBufferView(cbvDesc, mCbvSrvHeap.Allocate(1));
+                        mGraphicsDevice.NativeDevice.CreateConstantBufferView(cbvDesc, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.Allocate(1));
                     }
                 }
 
                 pFrameResource.InitBundle(mGraphicsDevice, mPipelineState1, mPipelineState2, i, mNumIndices, mIndexBufferView,
-                                          mVertexBufferView, mCbvSrvHeap, mSamplerHeap, mRootSignature);
+                                          mVertexBufferView, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator, mGraphicsDevice.ShaderVisibleSamplerAllocator, mRootSignature);
 
                 mFrameResources.Add(pFrameResource);
             }
@@ -612,7 +597,7 @@ namespace D3D12Bundles {
             commandList.Reset(mCurrentFrameResource.mCommandAllocator, mPipelineState1);
 
             // Set necessary state.
-            commandList.SetNecessaryState(mRootSignature, mCbvSrvHeap.DescriptorHeap, mSamplerHeap.DescriptorHeap);
+            commandList.SetNecessaryState(mRootSignature, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.DescriptorHeap, mGraphicsDevice.ShaderVisibleSamplerAllocator.DescriptorHeap);
 
             commandList.SetViewports(mViewport);
             commandList.SetScissorRectangles(mScissorRect);
@@ -632,12 +617,13 @@ namespace D3D12Bundles {
 
             if (UseBundles) {
                 // Execute the prebuilt bundle.
-                commandList.ExecuteBundle(frameResource.mBundle);
+                commandList.ExecuteBundle(frameResource.mBundle!);
             }
             else {
                 // Populate a new command list.
                 frameResource.PopulateCommandList(commandList, mPipelineState1, mPipelineState2, mCurrentFrameResourceIndex,
-                                                  mNumIndices, mIndexBufferView, mVertexBufferView, mCbvSrvHeap, mSamplerHeap, mRootSignature);
+                                                  mNumIndices, mIndexBufferView, mVertexBufferView,
+                                                  mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator, mGraphicsDevice.ShaderVisibleSamplerAllocator, mRootSignature);
             }
 
             // Indicate that the back buffer will now be used to present.
