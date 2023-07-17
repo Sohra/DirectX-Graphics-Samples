@@ -1,4 +1,6 @@
-﻿using System.Numerics;
+﻿using Serilog;
+using Serilog.Core;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Vortice.Direct3D12;
@@ -12,6 +14,7 @@ namespace D3D12Bundles {
         IntPtr mpConstantBuffers;
         internal ulong mFenceValue;
 
+        readonly ILogger mLogger;
         readonly Matrix4x4[] mModelMatrices;
         readonly int mCityRowCount;
         readonly int mCityColumnCount;
@@ -26,7 +29,8 @@ namespace D3D12Bundles {
             }
         }
 
-        public FrameResource(ID3D12Device device, int cityRowCount, int cityColumnCount) {
+        public FrameResource(GraphicsDevice device, int cityRowCount, int cityColumnCount) {
+            mLogger = device.Logger;
             mCityRowCount = cityRowCount;
             mCityColumnCount = cityColumnCount;
 
@@ -38,18 +42,17 @@ namespace D3D12Bundles {
             // resource needs a command allocator because command allocators 
             // cannot be reused until the GPU is done executing the commands 
             // associated with it.
-            mCommandAllocator = device.CreateCommandAllocator(CommandListType.Direct);
+            mCommandAllocator = device.NativeDevice.CreateCommandAllocator(CommandListType.Direct);
 
             // Create an upload heap for the constant buffers.
-            mCbvUploadHeap = device.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
-                                                            ResourceDescription.Buffer(Unsafe.SizeOf<SceneConstantBuffer>() * mCityRowCount * mCityColumnCount),
-                                                            ResourceStates.GenericRead, null);
+            mCbvUploadHeap = device.NativeDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+                                                                         ResourceDescription.Buffer(Unsafe.SizeOf<SceneConstantBuffer>() * mCityRowCount * mCityColumnCount),
+                                                                         ResourceStates.GenericRead, null);
 
             // Map the constant buffers. Note that unlike D3D11, the resource 
             // does not need to be unmapped for use by the GPU. In this sample, 
-            // the resource stays 'permenantly' mapped to avoid overhead with 
+            // the resource stays 'permanently' mapped to avoid overhead with 
             // mapping/unmapping each frame.
-            //mCbvUploadHeap.Map(0, readRange, mpConstantBuffers).CheckError();
             var readRange = new Vortice.Direct3D12.Range(0, 0); // We do not intend to read from this resource on the CPU.
             unsafe {
                 void* mappedResource;
@@ -92,36 +95,35 @@ namespace D3D12Bundles {
         }
 
         public void InitBundle(GraphicsDevice device, PipelineState pso1, PipelineState pso2, int frameResourceIndex, int numIndices, IndexBufferView? indexBufferViewDesc,
-                               VertexBufferView vertexBufferViewDesc, ID3D12DescriptorHeap cbvSrvDescriptorHeap, int cbvSrvDescriptorSize, ID3D12DescriptorHeap samplerDescriptorHeap, ID3D12RootSignature rootSignature) {
+                               VertexBufferView vertexBufferViewDesc, DescriptorAllocator cbvSrvAllocator, DescriptorAllocator samplerAllocator, ID3D12RootSignature rootSignature) {
             var bundle = new CommandList(device, CommandListType.Bundle, pso1); 
 
             PopulateCommandList(bundle, pso1, pso2, frameResourceIndex, numIndices, indexBufferViewDesc,
-                                vertexBufferViewDesc, cbvSrvDescriptorHeap, cbvSrvDescriptorSize, samplerDescriptorHeap, rootSignature);
+                                vertexBufferViewDesc, cbvSrvAllocator, samplerAllocator, rootSignature);
 
             mBundle = bundle.Close();
         }
 
         public void PopulateCommandList(CommandList commandList, PipelineState pso1, PipelineState pso2, int frameResourceIndex,
                                         int numIndices, IndexBufferView? indexBufferViewDesc, VertexBufferView vertexBufferViewDesc,
-                                        ID3D12DescriptorHeap cbvSrvDescriptorHeap, int cbvSrvDescriptorSize,
-                                        ID3D12DescriptorHeap samplerDescriptorHeap, ID3D12RootSignature rootSignature) {
+                                        DescriptorAllocator cbvSrvAllocator, DescriptorAllocator samplerAllocator, ID3D12RootSignature rootSignature) {
             // If the root signature matches the root signature of the caller, then
             // bindings are inherited, otherwise the bind space is reset.
-            commandList.SetNecessaryState(rootSignature, cbvSrvDescriptorHeap, samplerDescriptorHeap);
+            commandList.SetNecessaryState(rootSignature, cbvSrvAllocator.DescriptorHeap, samplerAllocator.DescriptorHeap);
 
             commandList.SetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
             commandList.SetIndexBuffer(indexBufferViewDesc);
             commandList.SetVertexBuffers(0, vertexBufferViewDesc);
-            commandList.SetGraphicsRootDescriptorTable(0, cbvSrvDescriptorHeap.GetGPUDescriptorHandleForHeapStart());
-            commandList.SetGraphicsRootDescriptorTable(1, samplerDescriptorHeap.GetGPUDescriptorHandleForHeapStart());
+            commandList.SetGraphicsRootDescriptorTable(0, cbvSrvAllocator.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
+            commandList.SetGraphicsRootDescriptorTable(1, samplerAllocator.DescriptorHeap.GetGPUDescriptorHandleForHeapStart());
 
-            // Calculate the descriptor offset due to multiple frame resources.
+            // Calculate the descriptor slot due to multiple frame resources.
             // 1 SRV + how many CBVs we have currently.
-            var frameResourceDescriptorOffset = 1 + frameResourceIndex * mCityRowCount * mCityColumnCount;
+            var frameResourceDescriptorSlot = 1 + frameResourceIndex * mCityRowCount * mCityColumnCount;
 
-            GpuDescriptorHandle cbvSrvHandle = cbvSrvDescriptorHeap.GetGPUDescriptorHandleForHeapStart().Offset(frameResourceDescriptorOffset, cbvSrvDescriptorSize);
+            GpuDescriptorHandle cbvSrvHandle = cbvSrvAllocator.GetGpuDescriptorHandle(cbvSrvAllocator.AllocateSlot(frameResourceDescriptorSlot));
 
-            using (var pe = new ProfilingEvent(commandList, "Draw cities")) {
+            using (var pe = new ProfilingEvent(commandList, "Draw cities", mLogger)) {
                 var usePso1 = true;
                 for (var i = 0; i < mCityRowCount; i++) {
                     for (var j = 0; j < mCityColumnCount; j++) {
@@ -132,7 +134,7 @@ namespace D3D12Bundles {
 
                         // Set this city's CBV table and move to the next descriptor.
                         commandList.SetGraphicsRootDescriptorTable(2, cbvSrvHandle);
-                        cbvSrvHandle.Offset(cbvSrvDescriptorSize);
+                        cbvSrvHandle.Offset(cbvSrvAllocator.DescriptorHandleIncrementSize);
 
                         commandList.DrawIndexedInstanced(numIndices, 1, 0, 0, 0);
                     }

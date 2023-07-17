@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using Serilog;
+using System.Diagnostics;
 using Vortice.Direct3D12;
 
 namespace D3D12Bundles {
@@ -7,6 +8,7 @@ namespace D3D12Bundles {
     /// </summary>
     class ProfilingEvent : IDisposable {
         readonly string mEventName;
+        readonly ILogger mLogger;
         readonly Stopwatch mStopwatch;
 
         /// <summary>
@@ -14,21 +16,23 @@ namespace D3D12Bundles {
         /// </summary>
         /// <param name="context">Context for the event, accepts <see cref="ID3D12GraphicsCommandList"/> or <see cref="ID3D12CommandQueue"/>.</param>
         /// <param name="eventName">The name to use to describe the event</param>
-        public ProfilingEvent(object context, string eventName) {
+        /// <param name="logger"></param>
+        public ProfilingEvent(object context, string eventName, ILogger logger) {
             if (!new[] { typeof(ID3D12GraphicsCommandList), typeof(ID3D12CommandQueue), typeof(wired.Graphics.CommandList), }.Contains(context.GetType())) {
                 throw new ArgumentException($"{context.GetType().Name} is not a valid context for profiling.", nameof(context));
             }
             mEventName = eventName;
+            mLogger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             mStopwatch = new Stopwatch();
             mStopwatch.Start();
-            Debug.WriteLine($"Starting event: {mEventName}");
+            mLogger.Verbose($"Starting event: {mEventName}");
         }
 
         public void Dispose() {
             mStopwatch.Stop();
-            Debug.WriteLine($"Ending event: {mEventName}");
-            Debug.WriteLine($"Elapsed time: {mStopwatch.ElapsedMilliseconds} ms");
+            mLogger.Verbose($"Ending event: {mEventName}");
+            mLogger.Verbose($"Elapsed time: {mStopwatch.ElapsedMilliseconds} ms");
         }
     }
 }

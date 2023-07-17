@@ -67,8 +67,8 @@ namespace D3D12Bundles {
         GraphicsPresenter mPresenter;
         GraphicsDevice mGraphicsDevice;
         ID3D12RootSignature mRootSignature;
-        ID3D12DescriptorHeap mCbvSrvHeap;
-        ID3D12DescriptorHeap mSamplerHeap;
+        DescriptorAllocator mCbvSrvHeap;
+        DescriptorAllocator mSamplerHeap;
         PipelineState mPipelineState1;
         PipelineState mPipelineState2;
 
@@ -80,7 +80,6 @@ namespace D3D12Bundles {
         VertexBufferView mVertexBufferView;
         IndexBufferView? mIndexBufferView;
         StepTimer mTimer;
-        int mCbvSrvDescriptorSize;
         SimpleCamera mCamera;
 
         // Frame resources.
@@ -178,7 +177,7 @@ namespace D3D12Bundles {
         /// Render the scene
         /// </summary>
         public virtual void OnRender() {
-            using (var pe = new ProfilingEvent(mGraphicsDevice.DirectCommandQueue.NativeCommandQueue, "Render")) {
+            using (var pe = new ProfilingEvent(mGraphicsDevice.DirectCommandQueue.NativeCommandQueue, "Render", mLogger)) {
                 // Record all the commands we need to render the scene into the command list.
                 CompiledCommandList compiledCommandList = PopulateCommandList(mGraphicsDevice.CommandList, mCurrentFrameResource);
 
@@ -316,26 +315,16 @@ namespace D3D12Bundles {
 
             // Create descriptor heaps.
             {
-                // Describe and create a shader resource view (SRV) and constant 
-                // buffer view (CBV) descriptor heap.
-                var cbvSrvHeapDesc = new DescriptorHeapDescription {
-                    DescriptorCount = FrameCount * CityRowCount * CityColumnCount  // FrameCount frames * CityRowCount * CityColumnCount.
-                                    + 1,                                           // + 1 for the SRV.
-                    Type = DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
-                    Flags = DescriptorHeapFlags.ShaderVisible,
-                };
-                mCbvSrvHeap = mGraphicsDevice.NativeDevice.CreateDescriptorHeap(cbvSrvHeapDesc);
-                mCbvSrvHeap.Name = "mCbvSrvHeap";
+                // Describe and create a shader resource view (SRV) and constant buffer view (CBV) descriptor heap.
+                var descriptorCount = FrameCount * CityRowCount * CityColumnCount  // FrameCount frames * CityRowCount * CityColumnCount
+                                    + 1;                                           // + 1 for the SRV.
+                mCbvSrvHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView,
+                                                      descriptorCount, DescriptorHeapFlags.ShaderVisible);
+                mCbvSrvHeap.DescriptorHeap.Name = nameof(mCbvSrvHeap);
+
 
                 // Describe and create a sampler descriptor heap.
-                var samplerHeapDesc = new DescriptorHeapDescription {
-                    DescriptorCount = 1,
-                    Type = DescriptorHeapType.Sampler,
-                    Flags = DescriptorHeapFlags.ShaderVisible,
-                };
-                mSamplerHeap = mGraphicsDevice.NativeDevice.CreateDescriptorHeap(samplerHeapDesc);
-
-                mCbvSrvDescriptorSize = mGraphicsDevice.NativeDevice.GetDescriptorHandleIncrementSize(DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView);
+                mSamplerHeap = new DescriptorAllocator(mGraphicsDevice.NativeDevice, DescriptorHeapType.Sampler, 1, DescriptorHeapFlags.ShaderVisible);
             }
         }
 
@@ -396,52 +385,21 @@ namespace D3D12Bundles {
                 var shader1 = new SimpleShader();
                 var shaderGenerator = new ShaderGenerator(shader1);
                 ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                ReadOnlyMemory<byte> vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader1.VSMain));
-                ReadOnlyMemory<byte> pixelShader1 = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader1.PSMain));
+                byte[] vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, nameof(shader1.VSMain));
+                byte[] pixelShader1 = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader1.PSMain));
 
                 var shader2 = new AltShader();
                 shaderGenerator = new ShaderGenerator(shader2);
                 result = shaderGenerator.GenerateShader();
-                ReadOnlyMemory<byte> pixelShader2 = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader2.PSMain));
+                byte[] pixelShader2 = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader2.PSMain));
 
                 // Describe and create the graphics pipeline state objects (PSO).
-                var psoDesc1 = new GraphicsPipelineStateDescription {
-                    //InputLayout = new InputLayoutDescription(Vertex.InputElements),
-                    InputLayout = new InputLayoutDescription(FlatShadedVertex.InputElements),
-                    RootSignature = mRootSignature,
-                    VertexShader = vertexShader,
-                    PixelShader = pixelShader1,
-                    RasterizerState = RasterizerDescription.CullNone, //I think this corresponds to CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT)
-                    BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
-                    //BlendState = BlendDescription.NonPremultiplied, //i.e. new BlendDescription(Blend.SourceAlpha, Blend.InverseSourceAlpha),
-                    DepthStencilState = DepthStencilDescription.Default,
-                    DepthStencilFormat = mPresenter.PresentationParameters.DepthStencilFormat,
-                    SampleMask = uint.MaxValue, //This is the default value anyway...
-                    PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
-                    RenderTargetFormats = new[] { mPresenter.PresentationParameters.BackBufferFormat, },
-                    SampleDescription = SampleDescription.Default,  //This is the default value anyway...
-                };
-                mPipelineState1 = new PipelineState(mGraphicsDevice.NativeDevice, mRootSignature, psoDesc1);
-                mPipelineState1.NativePipelineState.Name = nameof(mPipelineState1);
+                mPipelineState1 = new PipelineState(mGraphicsDevice, mRootSignature, FlatShadedVertex.InputElements,
+                                                    vertexShader, pixelShader1, name: nameof(mPipelineState1));
 
                 // Duplicate the description but use an alternate pixel shader and create a second PSO.
-                var psoDesc2 = new GraphicsPipelineStateDescription {
-                    //InputLayout = new InputLayoutDescription(Vertex.InputElements),
-                    InputLayout = new InputLayoutDescription(FlatShadedVertex.InputElements),
-                    RootSignature = mRootSignature,
-                    VertexShader = vertexShader,
-                    PixelShader = pixelShader2,
-                    RasterizerState = RasterizerDescription.CullNone, //I think this corresponds to CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT)
-                    BlendState = BlendDescription.Opaque,  //Nothing seems to correspond to CD3DX12_BLEND_DESC(D3D12_DEFAULT)
-                    DepthStencilState = DepthStencilDescription.Default,
-                    DepthStencilFormat = mPresenter.PresentationParameters.DepthStencilFormat,
-                    SampleMask = uint.MaxValue,
-                    PrimitiveTopologyType = PrimitiveTopologyType.Triangle,
-                    RenderTargetFormats = new[] { mPresenter.PresentationParameters.BackBufferFormat, },
-                    SampleDescription = SampleDescription.Default,
-                };
-                mPipelineState2 = new PipelineState(mGraphicsDevice.NativeDevice, mRootSignature, psoDesc2);
-                mPipelineState2.NativePipelineState.Name = nameof(mPipelineState2);                
+                mPipelineState2 = new PipelineState(mGraphicsDevice, mRootSignature, FlatShadedVertex.InputElements,
+                                                    vertexShader, pixelShader2, name: nameof(mPipelineState2));
             }
 
             // Reset the command list, we need it open for initial GPU setup.
@@ -592,7 +550,7 @@ namespace D3D12Bundles {
                     MinLOD = 0.0f,
                     MaxLOD = 0.0f,
                 };
-                mGraphicsDevice.NativeDevice.CreateSampler(ref samplerDesc, mSamplerHeap.GetCPUDescriptorHandleForHeapStart());
+                mGraphicsDevice.NativeDevice.CreateSampler(ref samplerDesc, mSamplerHeap.DescriptorHeap.GetCPUDescriptorHandleForHeapStart());
                 
                 // Describe and create a SRV for the texture.
                 var srvDesc = new ShaderResourceViewDescription {
@@ -601,7 +559,7 @@ namespace D3D12Bundles {
                     ViewDimension = ShaderResourceViewDimension.Texture2D,
                 };
                 srvDesc.Texture2D.MipLevels = 1;
-                mGraphicsDevice.NativeDevice.CreateShaderResourceView(mTexture.NativeResource, srvDesc, mCbvSrvHeap.GetCPUDescriptorHandleForHeapStart());
+                mGraphicsDevice.NativeDevice.CreateShaderResourceView(mTexture.NativeResource, srvDesc, mCbvSrvHeap.Allocate(1));
             }
 
             // Close the command list and execute it to begin the initial GPU setup.
@@ -617,9 +575,10 @@ namespace D3D12Bundles {
         /// </summary>
         void CreateFrameResources() {
             // Initialize each frame resource.
-            CpuDescriptorHandle cbvSrvHandle = mCbvSrvHeap.GetCPUDescriptorHandleForHeapStart().Offset(1, mCbvSrvDescriptorSize); // Move past the SRV in slot 1.
+            // Because using mCbvSrvHeap.Allocate now instead of mCbvSrvHeap.DescriptorHeap.GetCPUDescriptorHandleForHeapStart,
+            // this will have already moved past the SRV in slot 1.
             for (var i = 0; i < FrameCount; i++) {
-                var pFrameResource = new FrameResource(mGraphicsDevice.NativeDevice, CityRowCount, CityColumnCount);
+                var pFrameResource = new FrameResource(mGraphicsDevice, CityRowCount, CityColumnCount);
 
                 ulong cbOffset = 0;
                 for (var j = 0; j < CityRowCount; j++) {
@@ -630,13 +589,12 @@ namespace D3D12Bundles {
                             SizeInBytes = Unsafe.SizeOf<FrameResource.SceneConstantBuffer>()
                         };
                         cbOffset += (ulong)cbvDesc.SizeInBytes;
-                        mGraphicsDevice.NativeDevice.CreateConstantBufferView(cbvDesc, cbvSrvHandle);
-                        cbvSrvHandle.Offset(mCbvSrvDescriptorSize);
+                        mGraphicsDevice.NativeDevice.CreateConstantBufferView(cbvDesc, mCbvSrvHeap.Allocate(1));
                     }
                 }
 
                 pFrameResource.InitBundle(mGraphicsDevice, mPipelineState1, mPipelineState2, i, mNumIndices, mIndexBufferView,
-                                          mVertexBufferView, mCbvSrvHeap, mCbvSrvDescriptorSize, mSamplerHeap, mRootSignature);
+                                          mVertexBufferView, mCbvSrvHeap, mSamplerHeap, mRootSignature);
 
                 mFrameResources.Add(pFrameResource);
             }
@@ -654,7 +612,7 @@ namespace D3D12Bundles {
             commandList.Reset(mCurrentFrameResource.mCommandAllocator, mPipelineState1);
 
             // Set necessary state.
-            commandList.SetNecessaryState(mRootSignature, mCbvSrvHeap, mSamplerHeap);
+            commandList.SetNecessaryState(mRootSignature, mCbvSrvHeap.DescriptorHeap, mSamplerHeap.DescriptorHeap);
 
             commandList.SetViewports(mViewport);
             commandList.SetScissorRectangles(mScissorRect);
@@ -679,7 +637,7 @@ namespace D3D12Bundles {
             else {
                 // Populate a new command list.
                 frameResource.PopulateCommandList(commandList, mPipelineState1, mPipelineState2, mCurrentFrameResourceIndex,
-                                                  mNumIndices, mIndexBufferView, mVertexBufferView, mCbvSrvHeap, mCbvSrvDescriptorSize, mSamplerHeap, mRootSignature);
+                                                  mNumIndices, mIndexBufferView, mVertexBufferView, mCbvSrvHeap, mSamplerHeap, mRootSignature);
             }
 
             // Indicate that the back buffer will now be used to present.

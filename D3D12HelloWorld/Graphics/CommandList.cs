@@ -112,6 +112,12 @@ namespace wired.Graphics {
             mCommandList.SetGraphicsRoot32BitConstant(rootParameterIndex, srcData, destOffsetIn32BitValues);
         }
 
+        /// <summary>
+        /// Sets a constant buffer view (CBV) in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="constantBufferView">The constant buffer view to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the shader resource view descriptor heap is null.</exception>
         public void SetGraphicsRootConstantBufferView(int rootParameterIndex, ConstantBufferView constantBufferView) {
             if (mShaderResourceViewDescriptorHeap == null) {
                 throw new InvalidOperationException();
@@ -120,6 +126,12 @@ namespace wired.Graphics {
             SetGraphicsRootDescriptorTable(rootParameterIndex, mShaderResourceViewDescriptorHeap, constantBufferView.CpuDescriptorHandle, 1);
         }
 
+        /// <summary>
+        /// Sets a sampler in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="sampler">The sampler to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the sampler descriptor heap is null.</exception>
         public void SetGraphicsRootSampler(int rootParameterIndex, Sampler sampler) {
             if (mSamplerDescriptorHeap == null) {
                 throw new InvalidOperationException();
@@ -128,6 +140,12 @@ namespace wired.Graphics {
             SetGraphicsRootDescriptorTable(rootParameterIndex, mSamplerDescriptorHeap, sampler.CpuDescriptorHandle, 1);
         }
 
+        /// <summary>
+        /// Sets a descriptor table in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="descriptorSet">The descriptor set to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the appropriate descriptor heap is null.</exception>
         public void SetGraphicsRootDescriptorTable(int rootParameterIndex, DescriptorSet descriptorSet) {
             DescriptorAllocator? descriptorAllocator = (descriptorSet.DescriptorHeapType == DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView)
                                                      ? mShaderResourceViewDescriptorHeap
@@ -139,6 +157,13 @@ namespace wired.Graphics {
             SetGraphicsRootDescriptorTable(rootParameterIndex, descriptorAllocator, descriptorSet.StartCpuDescriptorHandle, descriptorSet.DescriptorCapacity);
         }
 
+        /// <summary>
+        /// Sets a descriptor table in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="descriptorAllocator">The descriptor allocator to use.</param>
+        /// <param name="baseDescriptor">The base descriptor to use.</param>
+        /// <param name="descriptorCount">The number of descriptors to set.</param>
         private void SetGraphicsRootDescriptorTable(int rootParameterIndex, DescriptorAllocator descriptorAllocator, CpuDescriptorHandle baseDescriptor, int descriptorCount) {
             GpuDescriptorHandle value = CopyDescriptors(descriptorAllocator, baseDescriptor, descriptorCount);
             mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, value);

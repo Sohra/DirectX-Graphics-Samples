@@ -12,24 +12,30 @@ namespace wired.Graphics {
 
         internal ID3D12PipelineState NativePipelineState { get; }
 
-        public PipelineState(GraphicsDevice device, ID3D12RootSignature rootSignature, byte[] computeShader)
-            : this(device.NativeDevice, rootSignature, CreateComputePipelineStateDescription(rootSignature, computeShader)) {
+        public PipelineState(GraphicsDevice device, ID3D12RootSignature rootSignature, byte[] computeShader, string? name = null)
+            : this(device.NativeDevice, CreateComputePipelineStateDescription(rootSignature, computeShader), name) {
         }
 
-        internal PipelineState(ID3D12Device device, ID3D12RootSignature rootSignature, ComputePipelineStateDescription pipelineStateDescription) {
+        internal PipelineState(ID3D12Device device, ComputePipelineStateDescription pipelineStateDescription, string? name) {
             IsCompute = true;
-            RootSignature = rootSignature;
+            RootSignature = pipelineStateDescription.RootSignature ?? throw new ArgumentException($"{nameof(ComputePipelineStateDescription.RootSignature)} may not be null.", nameof(pipelineStateDescription));
             NativePipelineState = device.CreateComputePipelineState(pipelineStateDescription);
+            if (!string.IsNullOrWhiteSpace(name)) {
+                NativePipelineState.Name = name;
+            }
         }
 
-        public PipelineState(GraphicsDevice device, ID3D12RootSignature rootSignature, InputElementDescription[] inputElements, byte[] vertexShader, byte[] pixelShader, byte[]? geometryShader = null, byte[]? hullShader = null, byte[]? domainShader = null)
-            : this(device.NativeDevice, rootSignature, CreateGraphicsPipelineStateDescription(device.CommandList, rootSignature, inputElements, vertexShader, pixelShader, geometryShader, hullShader, domainShader)) {
+        public PipelineState(GraphicsDevice device, ID3D12RootSignature rootSignature, InputElementDescription[] inputElements, byte[] vertexShader, byte[] pixelShader, byte[]? geometryShader = null, byte[]? hullShader = null, byte[]? domainShader = null, string? name = null)
+            : this(device.NativeDevice, CreateGraphicsPipelineStateDescription(device.CommandList, rootSignature, inputElements, vertexShader, pixelShader, geometryShader, hullShader, domainShader), name) {
         }
 
-        internal PipelineState(ID3D12Device device, ID3D12RootSignature rootSignature, GraphicsPipelineStateDescription pipelineStateDescription) {
+        internal PipelineState(ID3D12Device device, GraphicsPipelineStateDescription pipelineStateDescription, string? name) {
             IsCompute = false;
-            RootSignature = rootSignature;
+            RootSignature = pipelineStateDescription.RootSignature ?? throw new ArgumentException($"{nameof(ComputePipelineStateDescription.RootSignature)} may not be null.", nameof(pipelineStateDescription));
             NativePipelineState = device.CreateGraphicsPipelineState(pipelineStateDescription);
+            if (!string.IsNullOrWhiteSpace(name)) {
+                NativePipelineState.Name = name;
+            }
         }
 
         public void Dispose() {
@@ -47,9 +53,8 @@ namespace wired.Graphics {
             var cullNone = RasterizerDescription.CullNone;
             cullNone.FrontCounterClockwise = true;
             var alphaBlend = BlendDescription.AlphaBlend;
-            var inputLayout = new InputLayoutDescription(inputElements.Select((InputElementDescription i) => Unsafe.As<InputElementDescription, Vortice.Direct3D12.InputElementDescription>(ref i)).ToArray());
             var graphicsPipelineStateDescription = new GraphicsPipelineStateDescription {
-                InputLayout = inputLayout,
+                InputLayout = new InputLayoutDescription(inputElements),
                 RootSignature = rootSignature,
                 VertexShader = vertexShader,
                 PixelShader = pixelShader,
