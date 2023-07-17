@@ -7,7 +7,7 @@ using wired.Graphics;
 namespace D3D12Bundles {
     internal class FrameResource : IDisposable {
         internal ID3D12CommandAllocator mCommandAllocator;
-        internal CommandList mBundle;
+        internal CompiledCommandList? mBundle;
         internal ID3D12Resource mCbvUploadHeap;
         IntPtr mpConstantBuffers;
         internal ulong mFenceValue;
@@ -67,14 +67,15 @@ namespace D3D12Bundles {
             if (!mIsDisposed) {
                 if (disposing) {
                     // dispose managed state (managed objects)
+                    mBundle?.Builder.Dispose();
                     mCbvUploadHeap.Unmap(0, null);
-                    mBundle.Dispose();
                 }
 
                 // free unmanaged resources (unmanaged objects) and override finalizer
                 mpConstantBuffers = IntPtr.Zero;
 
-                // TODO: set large fields to null
+                // set large fields to null
+                mBundle = null;
                 mIsDisposed = true;
             }
         }
@@ -92,12 +93,12 @@ namespace D3D12Bundles {
 
         public void InitBundle(GraphicsDevice device, PipelineState pso1, PipelineState pso2, int frameResourceIndex, int numIndices, IndexBufferView? indexBufferViewDesc,
                                VertexBufferView vertexBufferViewDesc, ID3D12DescriptorHeap cbvSrvDescriptorHeap, int cbvSrvDescriptorSize, ID3D12DescriptorHeap samplerDescriptorHeap, ID3D12RootSignature rootSignature) {
-            mBundle = new CommandList(device, CommandListType.Bundle, pso1); 
+            var bundle = new CommandList(device, CommandListType.Bundle, pso1); 
 
-            PopulateCommandList(mBundle, pso1, pso2, frameResourceIndex, numIndices, indexBufferViewDesc,
+            PopulateCommandList(bundle, pso1, pso2, frameResourceIndex, numIndices, indexBufferViewDesc,
                                 vertexBufferViewDesc, cbvSrvDescriptorHeap, cbvSrvDescriptorSize, samplerDescriptorHeap, rootSignature);
 
-            mBundle.Close();
+            mBundle = bundle.Close();
         }
 
         public void PopulateCommandList(CommandList commandList, PipelineState pso1, PipelineState pso2, int frameResourceIndex,

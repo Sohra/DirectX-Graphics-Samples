@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "D3D12Bundles": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    }
+  }
+}

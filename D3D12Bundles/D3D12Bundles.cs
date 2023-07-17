@@ -241,6 +241,7 @@ namespace D3D12Bundles {
 #if DEBUG
             // Enable the debug layer (requires the Graphics Tools "optional feature").
             // NOTE: Enabling the debug layer after device creation will invalidate the active device.
+            // NOTE: Ensure native debugging is enabled to see the debug messages from this native code in the Visual Studio Debug window!
             {
                 if (D3D12.D3D12GetDebugInterface(out ID3D12Debug? debugController).Success) {
                     debugController!.EnableDebugLayer();
@@ -254,8 +255,8 @@ namespace D3D12Bundles {
                 }
 
                 if (DXGI.DXGIGetDebugInterface1(out Vortice.DXGI.Debug.IDXGIInfoQueue? dxgiInfoQueue).Success) {
-                    dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Error, false);
-                    dxgiInfoQueue.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Corruption, true);
+                    dxgiInfoQueue!.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Corruption, true);
+                    dxgiInfoQueue.SetBreakOnSeverity(DXGI.DebugAll, Vortice.DXGI.Debug.InfoQueueMessageSeverity.Error, true);
 
                     var hide = new int[] {
                         80 /* IDXGISwapChain::GetContainingOutput: The swapchain's adapter does not control the output on which the swapchain's window resides. */,
@@ -295,8 +296,8 @@ namespace D3D12Bundles {
             {
                 using ID3D12InfoQueue? d3dInfoQueue = device.QueryInterfaceOrNull<ID3D12InfoQueue>();
                 if (d3dInfoQueue != null) {
-                    d3dInfoQueue!.SetBreakOnSeverity(MessageSeverity.Corruption, true);
-                    d3dInfoQueue!.SetBreakOnSeverity(MessageSeverity.Error, false);
+                    d3dInfoQueue.SetBreakOnSeverity(MessageSeverity.Corruption, true);
+                    d3dInfoQueue.SetBreakOnSeverity(MessageSeverity.Error, true);
                     var hide = new MessageId[] {
                         MessageId.MapInvalidNullRange,
                         MessageId.UnmapInvalidNullRange,
@@ -312,8 +313,8 @@ namespace D3D12Bundles {
                     };
                     d3dInfoQueue.AddStorageFilterEntries(filter);
 
-                    d3dInfoQueue.AddMessage(MessageCategory.Miscellaneous, MessageSeverity.Warning, MessageId.SamplePositionsMismatchRecordTimeAssumedFromClear, "Hi from Sam");
-                    d3dInfoQueue.AddApplicationMessage(MessageSeverity.Warning, "Hi from Application");
+                    d3dInfoQueue.AddMessage(MessageCategory.Miscellaneous, MessageSeverity.Warning, MessageId.SamplePositionsMismatchRecordTimeAssumedFromClear, $"Hi, from {mName}");
+                    d3dInfoQueue.AddApplicationMessage(MessageSeverity.Warning, $"Hi, from application {mName}");
                 }
             }
 #endif
@@ -710,7 +711,7 @@ namespace D3D12Bundles {
 
             if (UseBundles) {
                 // Execute the prebuilt bundle.
-                mGraphicsDevice.CommandList.ExecuteBundle(frameResource.mBundle.Close());
+                mGraphicsDevice.CommandList.ExecuteBundle(frameResource.mBundle);
             }
             else {
                 // Populate a new command list.
