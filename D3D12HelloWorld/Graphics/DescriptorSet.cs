@@ -41,6 +41,15 @@ namespace wired.Graphics {
         public CpuDescriptorHandle StartCpuDescriptorHandle { get; }
 
         /// <summary>
+        /// Initializes a new instance of the DescriptorSet class with the specified resource views.
+        /// </summary>
+        /// <param name="device">The graphics device.</param>
+        /// <param name="resources">The resource views to add to the set.</param>
+        public DescriptorSet(GraphicsDevice device, IEnumerable<ResourceView> resources) : this(device, resources.Count(), DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView) {
+            AddResourceViews(resources);
+        }
+
+        /// <summary>
         /// Initializes a new instance of the DescriptorSet class with the specified samplers.
         /// </summary>
         /// <param name="device">The graphics device.</param>

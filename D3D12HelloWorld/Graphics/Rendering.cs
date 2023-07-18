@@ -16,19 +16,27 @@ namespace wired.Graphics {
     }
 
     public class ConstantBufferView : ResourceView {
-        public ConstantBufferView(GraphicsResource resource) : base(resource, CreateConstantBufferView(resource)) {
-        }
-
         public ConstantBufferView(ConstantBufferView constantBufferView) : base(constantBufferView.Resource, constantBufferView.CpuDescriptorHandle) {
         }
 
-        private static CpuDescriptorHandle CreateConstantBufferView(GraphicsResource resource) {
-            CpuDescriptorHandle cpuHandle = resource.GraphicsDevice.ShaderResourceViewAllocator.Allocate(1);
+        public ConstantBufferView(GraphicsResource resource)
+            : this(resource, 0, resource.SizeInBytes, resource.GraphicsDevice.ShaderResourceViewAllocator) {
+        }
 
-            int constantBufferSize = ((int)resource.SizeInBytes + 255) & ~255;
+        internal ConstantBufferView(GraphicsResource resource, ulong offset, ulong sizeInBytes, DescriptorAllocator shaderResourceViewAllocator)
+            : base(resource, CreateConstantBufferView(resource, offset, sizeInBytes, shaderResourceViewAllocator)) {
+        }
+
+        public static ConstantBufferView FromOffset<TBuffer>(GraphicsResource resource, ulong offset, DescriptorAllocator shaderResourceViewAllocator)
+            => new ConstantBufferView(resource, offset, (ulong)Unsafe.SizeOf<TBuffer>(), shaderResourceViewAllocator);
+
+        private static CpuDescriptorHandle CreateConstantBufferView(GraphicsResource resource, ulong offset, ulong sizeInBytes, DescriptorAllocator shaderResourceViewAllocator) {
+            CpuDescriptorHandle cpuHandle = shaderResourceViewAllocator.Allocate(1);
+
+            int constantBufferSize = ((int)sizeInBytes + 255) & ~255;
 
             ConstantBufferViewDescription cbvDescription = new ConstantBufferViewDescription {
-                BufferLocation = resource.NativeResource.GPUVirtualAddress,
+                BufferLocation = resource.NativeResource.GPUVirtualAddress + offset,
                 SizeInBytes = constantBufferSize
             };
 

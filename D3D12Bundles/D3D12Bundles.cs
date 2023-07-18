@@ -77,7 +77,8 @@ namespace D3D12Bundles {
         VertexBufferView mVertexBufferView;
         IndexBufferView? mIndexBufferView;
         Texture mTexture;
-        Sampler mDefaultSampler;
+        Sampler mSampler;
+        DescriptorSet mShaderResourceViewDescriptorSet;
         StepTimer mTimer;
         SimpleCamera mCamera;
 
@@ -535,7 +536,7 @@ namespace D3D12Bundles {
                     MinLOD = 0.0f,
                     MaxLOD = 0.0f,
                 };
-                mDefaultSampler = new Sampler(mGraphicsDevice.NativeDevice, mGraphicsDevice.ShaderVisibleSamplerAllocator, samplerDesc);
+                mSampler = new Sampler(mGraphicsDevice.NativeDevice, mGraphicsDevice.SamplerAllocator, samplerDesc);
                 
                 // Describe and create a SRV for the texture.
                 var srvDesc = new ShaderResourceViewDescription {
@@ -544,7 +545,7 @@ namespace D3D12Bundles {
                     ViewDimension = ShaderResourceViewDimension.Texture2D,
                 };
                 srvDesc.Texture2D.MipLevels = 1;
-                mGraphicsDevice.NativeDevice.CreateShaderResourceView(mTexture.NativeResource, srvDesc, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.Allocate(1));
+                mShaderResourceViewDescriptorSet = new DescriptorSet(mGraphicsDevice, new[] { new ShaderResourceView(mTexture, srvDesc) });
             }
 
             // Close the command list and execute it to begin the initial GPU setup.
@@ -560,44 +561,22 @@ namespace D3D12Bundles {
         /// </summary>
         void CreateFrameResources() {
             // Initialize each frame resource.
-            // Because using mCbvSrvHeap.Allocate now instead of mCbvSrvHeap.DescriptorHeap.GetCPUDescriptorHandleForHeapStart,
-            // this will have already moved past the SRV in slot 1.
             for (var i = 0; i < FrameCount; i++) {
-                var pFrameResource = new FrameResource(mGraphicsDevice, CityRowCount, CityColumnCount);
+                var pFrameResource = new FrameResource(mGraphicsDevice, CityRowCount, CityColumnCount, $"{nameof(mFrameResources)}[{i}]");
 
-                ulong cbOffset = 0;
-                for (var j = 0; j < CityRowCount; j++) {
-                    for (var k = 0; k < CityColumnCount; k++) {
-                        // Describe and create a constant buffer view (CBV).
-                        var cbvDesc = new ConstantBufferViewDescription {
-                            BufferLocation = pFrameResource.mCbvUploadHeap.GPUVirtualAddress + cbOffset,
-                            SizeInBytes = Unsafe.SizeOf<FrameResource.SceneConstantBuffer>()
-                        };
-                        cbOffset += (ulong)cbvDesc.SizeInBytes;
-                        mGraphicsDevice.NativeDevice.CreateConstantBufferView(cbvDesc, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.Allocate(1));
-                    }
-                }
-
-                pFrameResource.InitBundle(mGraphicsDevice, mPipelineState1, mPipelineState2, i, mNumIndices, mIndexBufferView,
-                                          mVertexBufferView, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator, mGraphicsDevice.ShaderVisibleSamplerAllocator, mRootSignature);
+                pFrameResource.InitBundle(mGraphicsDevice, mPipelineState1, mPipelineState2, mNumIndices, mIndexBufferView, mVertexBufferView,
+                                          mShaderResourceViewDescriptorSet, mSampler);
 
                 mFrameResources.Add(pFrameResource);
             }
         }
 
         CompiledCommandList PopulateCommandList(CommandList commandList, FrameResource frameResource) {
-            // Command list allocators can only be reset when the associated
-            // command lists have finished execution on the GPU; apps should use
-            // fences to determine GPU execution progress.
-            mCurrentFrameResource.mCommandAllocator.Reset();
-
-            // However, when ExecuteCommandList() is called on a particular command
-            // list, that command list can then be reset at any time and must be before
-            // re-recording.
-            commandList.Reset(mCurrentFrameResource.mCommandAllocator, mPipelineState1);
+            commandList.Reset(mCurrentFrameResource.CommandAllocator);
 
             // Set necessary state.
-            commandList.SetNecessaryState(mRootSignature, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator.DescriptorHeap, mGraphicsDevice.ShaderVisibleSamplerAllocator.DescriptorHeap);
+            commandList.SetRootSignature(mPipelineState1);
+            commandList.SetShaderVisibleDescriptorHeaps();
 
             commandList.SetViewports(mViewport);
             commandList.SetScissorRectangles(mScissorRect);
@@ -617,13 +596,12 @@ namespace D3D12Bundles {
 
             if (UseBundles) {
                 // Execute the prebuilt bundle.
-                commandList.ExecuteBundle(frameResource.mBundle!);
+                commandList.ExecuteBundle(frameResource.Bundle);
             }
             else {
                 // Populate a new command list.
-                frameResource.PopulateCommandList(commandList, mPipelineState1, mPipelineState2, mCurrentFrameResourceIndex,
-                                                  mNumIndices, mIndexBufferView, mVertexBufferView,
-                                                  mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator, mGraphicsDevice.ShaderVisibleSamplerAllocator, mRootSignature);
+                frameResource.PopulateCommandList(commandList, mPipelineState1, mPipelineState2, mNumIndices, mIndexBufferView, mVertexBufferView,
+                                                  mShaderResourceViewDescriptorSet, mSampler);
             }
 
             // Indicate that the back buffer will now be used to present.

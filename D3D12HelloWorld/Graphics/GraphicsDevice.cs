@@ -16,6 +16,7 @@ namespace wired.Graphics {
 
             ShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096);
             SamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256);
+
             ShaderVisibleShaderResourceViewAllocator = new DescriptorAllocator(device, DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView, 4096, DescriptorHeapFlags.ShaderVisible);
             ShaderVisibleSamplerAllocator = new DescriptorAllocator(device, DescriptorHeapType.Sampler, 256, DescriptorHeapFlags.ShaderVisible);
 
@@ -43,8 +44,8 @@ namespace wired.Graphics {
         /// Gets the descriptor allocator for shader-visible shader resource views. This allocator manages a shader-visible descriptor heap, 
         /// typically used for creating descriptors that are referenced by shaders running on the GPU.
         /// </summary>
-        public DescriptorAllocator ShaderVisibleShaderResourceViewAllocator { get; }
-        public DescriptorAllocator ShaderVisibleSamplerAllocator { get; }
+        internal DescriptorAllocator ShaderVisibleShaderResourceViewAllocator { get; }
+        internal DescriptorAllocator ShaderVisibleSamplerAllocator { get; }
 
         public CommandList CommandList { get; }
 
