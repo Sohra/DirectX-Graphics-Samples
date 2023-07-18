@@ -265,6 +265,10 @@ namespace wired.Graphics {
                                        ulong intermediateOffset, int firstSubresource, ReadOnlySpan<byte> data)
             => mDevice.NativeDevice.UpdateSubresource(mCommandList, destResource.NativeResource, intermediateResource, intermediateOffset, firstSubresource, data);
 
+        public ulong UpdateSubresources(GraphicsResource destResource, ID3D12Resource intermediateResource,
+                                        ulong intermediateOffset, int firstSubresource, SubresourceInfo[] subresourceInfo)
+            => mDevice.NativeDevice.UpdateSubResources(mCommandList, destResource.NativeResource, intermediateResource, intermediateOffset, firstSubresource, subresourceInfo);
+
         GpuDescriptorHandle CopyDescriptors(DescriptorAllocator descriptorAllocator, CpuDescriptorHandle baseDescriptor, int descriptorCount) {
             CpuDescriptorHandle intPtr = descriptorAllocator.Allocate(descriptorCount);
             mDevice.NativeDevice.CopyDescriptorsSimple(descriptorCount, intPtr, baseDescriptor, descriptorAllocator.DescriptorHeap.Description.Type);

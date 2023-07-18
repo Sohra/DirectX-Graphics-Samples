@@ -17,15 +17,6 @@ namespace D3D12Bundles {
         internal ulong mFenceValue;
         bool mIsDisposed;
 
-        public unsafe struct SceneConstantBuffer {
-            public Matrix4x4 mvp; //Model-view-projection (MVP) matrix;
-            public fixed float padding[48];
-
-            public SceneConstantBuffer() {
-                mvp = Matrix4x4.Identity;
-            }
-        }
-
         public FrameResource(GraphicsDevice device, int cityRowCount, int cityColumnCount, string? name = null) {
             mLogger = device.Logger;
             mCityRowCount = cityRowCount;
@@ -121,15 +112,22 @@ namespace D3D12Bundles {
             }
         }
 
-        public void UpdateConstantBuffers(Matrix4x4 view, Matrix4x4 projection) {
+        public void UpdateConstantBuffers(Matrix4x4 view, Matrix4x4 projection, bool isUsingRawHlslShaders) {
             for (var i = 0; i < mCityRowCount; i++) {
                 for (var j = 0; j < mCityColumnCount; j++) {
                     Matrix4x4 model = mModelMatrices[i * mCityColumnCount + j];
 
                     // Compute the model-view-projection matrix.
-                    //C++ code did this, but I think I need to remove it for C#, I guess System.Numerics is row-major?
-                    //Matrix4x4 mvp = Matrix4x4.Transpose(model * view * projection);
+                    // C++ code did this, and I initially thought I need to remove it for C# because System.Numerics is column-major,
+                    // whereas HLSL uses row-major.  However it turns out that it's nothing to do with C# vs C++ differences, but rather
+                    // HLSL vs .NET.  When using the original HLSL vertex shader we must transpose mvp before upload, however if compiling,
+                    // a .NET shader to HLSL, it seems that process automatically transposes and we must remove this call...
+                    // Allegedly there isn HLSL directive: #pragma pack_matrix (column_major)
+                    // which can be used to negate the need for this.
                     Matrix4x4 mvp = model * view * projection;
+
+                    if (isUsingRawHlslShaders)
+                        mvp = Matrix4x4.Transpose(mvp);
 
                     // Copy this matrix into the appropriate location in the upload heap subresource.
                     mConstantBufferViews[i * mCityColumnCount + j].Resource.SetData(mvp, (uint)((i * mCityColumnCount + j) * Unsafe.SizeOf<Matrix4x4>()));
@@ -151,6 +149,15 @@ namespace D3D12Bundles {
                 // set large fields to null
                 mBundle = null;
                 mIsDisposed = true;
+            }
+        }
+
+        unsafe struct SceneConstantBuffer {
+            public Matrix4x4 mvp; //Model-view-projection (MVP) matrix;
+            public fixed float padding[48];
+
+            public SceneConstantBuffer() {
+                mvp = Matrix4x4.Identity;
             }
         }
 
