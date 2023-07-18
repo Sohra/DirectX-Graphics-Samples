@@ -632,7 +632,7 @@ namespace D3D12HelloWorld.Mutiny {
                 //commandList.SetIndexBuffer(mesh.MeshDraw.IndexBufferView);
                 commandList.SetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
 
-                commandList.SetPipelineState(material.PipelineState!);
+                commandList.SetPipelineState(material.PipelineState!, true);
                 commandList.SetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
 
                 int rootParameterIndex = 0;

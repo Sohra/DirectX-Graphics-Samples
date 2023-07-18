@@ -17,7 +17,7 @@ namespace D3D12Bundles {
         internal ulong mFenceValue;
         bool mIsDisposed;
 
-        public FrameResource(GraphicsDevice device, int cityRowCount, int cityColumnCount, string? name = null) {
+        public FrameResource(GraphicsDevice device, int cityRowCount, int cityColumnCount, float internalX, float intervalY, string? name = null) {
             mLogger = device.Logger;
             mCityRowCount = cityRowCount;
             mCityColumnCount = cityColumnCount;
@@ -48,7 +48,7 @@ namespace D3D12Bundles {
 
             // Update all of the model matrices once; our cities don't move so 
             // we don't need to do this ever again.
-            SetCityPositions(8.0f, -8.0f);
+            SetCityPositions(internalX, intervalY);
 
             // Create CBVs
             mConstantBufferViews = CreateConstantBufferViews(device);

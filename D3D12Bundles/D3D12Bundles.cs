@@ -24,7 +24,7 @@ namespace D3D12Bundles {
         const int CityRowCount = 10;
         const int CityColumnCount = 3;
         const bool UseBundles = true;
-        const bool UseMutinyAssets = true;
+        const bool UseMutinyAssets = false;
         const bool UseRawHlslShaders = !UseMutinyAssets && true;
 
         struct Vertex {
@@ -409,6 +409,7 @@ namespace D3D12Bundles {
             mGraphicsDevice.CommandList.Reset();
 
             // Read in mesh data for vertex/index buffers.
+            byte[] pMeshData;
             if (UseMutinyAssets) {
                 var modelLoader = XModelLoader.Create3(mGraphicsDevice, @"..\..\..\..\D3D12HelloWorld\Mutiny\Models\cannon_boss.X");
                 (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
@@ -425,7 +426,7 @@ namespace D3D12Bundles {
                 mNumIndices = mIndexBufferView!.Value.SizeInBytes / (mIndexBufferView.Value.Format.GetBitsPerPixel() >> 3);
             }
             else {
-                var pMeshData = File.ReadAllBytes(@"..\..\..\occcity.bin");
+                pMeshData = File.ReadAllBytes(@"..\..\..\occcity.bin");
 
                 // Create the vertex buffer.
                 {
@@ -504,25 +505,58 @@ namespace D3D12Bundles {
             {
                 // Describe and create a Texture2D.
                 ResourceDescription textureDesc;
-                var textureFile = new FileInfo(@"..\..\..\..\D3D12HelloWorld\Mutiny\Textures\CannonBoss_tex.jpg");
-                if (!textureFile.Exists) {
-                    throw new FileNotFoundException($"Could not find file: {textureFile.FullName}");
+                if (UseMutinyAssets) {
+                    var textureFile = new FileInfo(@"..\..\..\..\D3D12HelloWorld\Mutiny\Textures\CannonBoss_tex.jpg");
+                    if (!textureFile.Exists) {
+                        throw new FileNotFoundException($"Could not find file: {textureFile.FullName}");
+                    }
+                    else {
+                        using FileStream stream = File.OpenRead(textureFile.FullName);
+                        var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                        var firstFrame = decoder.Frames.First();
+
+                        var format = firstFrame.Format.BitsPerPixel == 32
+                                   ? Format.R8G8B8A8_UNorm
+                                   : Format.D24_UNorm_S8_UInt; //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
+                        var pixelSizeInBytes = firstFrame.Format.BitsPerPixel / 8;
+                        var stride = firstFrame.PixelWidth * pixelSizeInBytes;
+                        var pixels = new byte[firstFrame.PixelHeight * stride];
+                        firstFrame.CopyPixels(pixels, stride, 0);
+
+                        ushort mipLevels = 1;
+                        textureDesc = ResourceDescription.Texture2D(format, (uint)firstFrame.PixelWidth, (uint)firstFrame.PixelHeight, 1, mipLevels, 1, 0, ResourceFlags.None);
+                        var textureResource = mGraphicsDevice.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
+                                                                                                   textureDesc, ResourceStates.CopyDest, null);
+                        mTexture = new Texture(mGraphicsDevice, textureResource, nameof(mTexture));
+
+                        var subresourceCount = textureDesc.DepthOrArraySize * textureDesc.MipLevels;
+                        var uploadBufferSize = mGraphicsDevice.NativeDevice.GetRequiredIntermediateSize(mTexture.NativeResource, 0, subresourceCount);
+
+                        textureUploadHeap = mGraphicsDevice.NativeDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
+                                                                                                 ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
+
+                        Span<byte> textureData = pixels.AsSpan();
+
+                        mGraphicsDevice.CommandList.UpdateSubresource(mTexture, textureUploadHeap, 0, 0, textureData);
+                        /*var textureData = new SubresourceInfo[subresourceCount];
+                        textureData[0] = new SubresourceInfo {
+                            Offset = pMeshData + SampleAssets::Textures[0].Data[0].Offset,
+                            RowPitch = SampleAssets::Textures[0].Data[0].Pitch,
+                            DepthPitch = SampleAssets::Textures[0].Data[0].Size,
+                        };
+                        mGraphicsDevice.NativeDevice.UpdateSubResources(mCommandList, mTexture, textureUploadHeap, 0, 0, textureData);*/
+                    }
                 }
                 else {
-                    using FileStream stream = File.OpenRead(textureFile.FullName);
-                    var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                    var firstFrame = decoder.Frames.First();
+                    var sampleAssets_Textures0_Width = (uint)1024;
+                    var sampleAssets_Textures0_Height = (uint)1024;
+                    var sampleAssets_Textures0_MipLevels = (ushort)1;
+                    var sampleAssets_Textures0_Format = Format.BC1_UNorm;
+                    var sampleAssets_Textures0_Data0_Offset = 0;
+                    var sampleAssets_Textures0_Data0_Size = 524288;
 
-                    var format = firstFrame.Format.BitsPerPixel == 32
-                               ? Format.R8G8B8A8_UNorm
-                               : Format.D24_UNorm_S8_UInt; //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
-                    var pixelSizeInBytes = firstFrame.Format.BitsPerPixel / 8;
-                    var stride = firstFrame.PixelWidth * pixelSizeInBytes;
-                    var pixels = new byte[firstFrame.PixelHeight * stride];
-                    firstFrame.CopyPixels(pixels, stride, 0);
-
-                    ushort mipLevels = 1;
-                    textureDesc = ResourceDescription.Texture2D(format, (uint)firstFrame.PixelWidth, (uint)firstFrame.PixelHeight, 1, mipLevels, 1, 0, ResourceFlags.None);
+                    textureDesc = ResourceDescription.Texture2D(sampleAssets_Textures0_Format, sampleAssets_Textures0_Width, sampleAssets_Textures0_Height,
+                                                                1, sampleAssets_Textures0_MipLevels, 1, 0, ResourceFlags.None);
                     var textureResource = mGraphicsDevice.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None,
                                                                                                textureDesc, ResourceStates.CopyDest, null);
                     mTexture = new Texture(mGraphicsDevice, textureResource, nameof(mTexture));
@@ -533,16 +567,8 @@ namespace D3D12Bundles {
                     textureUploadHeap = mGraphicsDevice.NativeDevice.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None,
                                                                                              ResourceDescription.Buffer(uploadBufferSize), ResourceStates.GenericRead, null);
 
-                    Span<byte> textureData = pixels.AsSpan();
-
+                    var textureData = pMeshData.AsSpan(sampleAssets_Textures0_Data0_Offset, sampleAssets_Textures0_Data0_Size);
                     mGraphicsDevice.CommandList.UpdateSubresource(mTexture, textureUploadHeap, 0, 0, textureData);
-                    /*var textureData = new SubresourceInfo[subresourceCount];
-                    textureData[0] = new SubresourceInfo {
-                        Offset = pMeshData + SampleAssets::Textures[0].Data[0].Offset,
-                        RowPitch = SampleAssets::Textures[0].Data[0].Pitch,
-                        DepthPitch = SampleAssets::Textures[0].Data[0].Size,
-                    };
-                    mGraphicsDevice.NativeDevice.UpdateSubResources(mCommandList, mTexture, textureUploadHeap, 0, 0, textureData);*/
                 }
 
                 //NOTE: This is not required if using a copy queue, see MJP comment at https://www.gamedev.net/forums/topic/704025-use-texture2darray-in-d3d12/
@@ -598,7 +624,10 @@ namespace D3D12Bundles {
         void CreateFrameResources() {
             // Initialize each frame resource.
             for (var i = 0; i < FrameCount; i++) {
-                var pFrameResource = new FrameResource(mGraphicsDevice, CityRowCount, CityColumnCount, $"{nameof(mFrameResources)}[{i}]");
+                var intervalX = UseMutinyAssets ? 10.0f : 8.0f;
+                var intervalY = UseMutinyAssets ? -16.0f : -8.0f;
+                var pFrameResource = new FrameResource(mGraphicsDevice, CityRowCount, CityColumnCount,
+                                                       intervalX, intervalY, $"{nameof(mFrameResources)}[{i}]");
 
                 pFrameResource.InitBundle(mGraphicsDevice, mPipelineState1, mPipelineState2, mNumIndices, mIndexBufferView, mVertexBufferView,
                                           mShaderResourceViewDescriptorSet, mSampler);
