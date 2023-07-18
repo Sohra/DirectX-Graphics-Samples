@@ -575,29 +575,34 @@ namespace D3D12Bundles {
                 mGraphicsDevice.CommandList.ResourceBarrierTransition(mTexture, ResourceStates.CopyDest, ResourceStates.PixelShaderResource);
 
                 // Describe and create a sampler.
-                //var samplerDesc = new SamplerDescription {
-                //    Filter = Filter.MinMagMipLinear,
-                //    AddressU = TextureAddressMode.Wrap,
-                //    AddressV = TextureAddressMode.Wrap,
-                //    AddressW = TextureAddressMode.Wrap,
-                //    MinLOD = 0.0f,
-                //    MaxLOD = float.MaxValue,
-                //    MipLODBias = 0.0f,
-                //    MaxAnisotropy = 1,
-                //    ComparisonFunction = ComparisonFunction.Always,
-                //};
-                var samplerDesc = new SamplerDescription {
-                    Filter = Filter.MinMagMipPoint,
-                    AddressU = TextureAddressMode.Border,
-                    AddressV = TextureAddressMode.Border,
-                    AddressW = TextureAddressMode.Border,
-                    MipLODBias = 0,
-                    MaxAnisotropy = 0,
-                    ComparisonFunction = ComparisonFunction.Never,
-                    BorderColor = new Color4(Color3.Black, 0.0f),
-                    MinLOD = 0.0f,
-                    MaxLOD = 0.0f,
-                };
+                SamplerDescription samplerDesc;
+                if (UseMutinyAssets) {
+                    samplerDesc = new SamplerDescription {
+                        Filter = Filter.MinMagMipPoint,
+                        AddressU = TextureAddressMode.Border,
+                        AddressV = TextureAddressMode.Border,
+                        AddressW = TextureAddressMode.Border,
+                        MipLODBias = 0,
+                        MaxAnisotropy = 0,
+                        ComparisonFunction = ComparisonFunction.Never,
+                        BorderColor = new Color4(Color3.Black, 0.0f),
+                        MinLOD = 0.0f,
+                        MaxLOD = 0.0f,
+                    };
+                }
+                else {
+                    samplerDesc = new SamplerDescription {
+                        Filter = Filter.MinMagMipLinear,
+                        AddressU = TextureAddressMode.Wrap,
+                        AddressV = TextureAddressMode.Wrap,
+                        AddressW = TextureAddressMode.Wrap,
+                        MinLOD = 0.0f,
+                        MaxLOD = float.MaxValue,
+                        MipLODBias = 0.0f,
+                        MaxAnisotropy = 1,
+                        ComparisonFunction = ComparisonFunction.Always,
+                    };
+                }
                 mSampler = new Sampler(mGraphicsDevice.NativeDevice, mGraphicsDevice.SamplerAllocator, samplerDesc);
                 
                 // Describe and create a SRV for the texture.
