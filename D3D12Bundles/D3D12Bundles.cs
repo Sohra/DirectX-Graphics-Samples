@@ -2,9 +2,7 @@
 using Serilog;
 using SharpGen.Runtime;
 using System.IO;
-using System.Linq;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows.Media;
 using Vortice;
@@ -26,7 +24,8 @@ namespace D3D12Bundles {
         const int CityRowCount = 10;
         const int CityColumnCount = 3;
         const bool UseBundles = true;
-        const bool UseMutinyAssets = false;
+        const bool UseMutinyAssets = true;
+        const bool UseRawHlslShaders = !UseMutinyAssets && true;
 
         struct Vertex {
             /// <summary>
@@ -172,7 +171,7 @@ namespace D3D12Bundles {
             }
 
             mCamera.Update((float)mTimer.ElapsedSeconds);
-            mCurrentFrameResource.UpdateConstantBuffers(mCamera.GetViewMatrix(), mCamera.GetProjectionMatrix(0.8f, mAspectRatio), !UseMutinyAssets);
+            mCurrentFrameResource.UpdateConstantBuffers(mCamera.GetViewMatrix(), mCamera.GetProjectionMatrix(0.8f, mAspectRatio), UseRawHlslShaders);
         }
 
         /// <summary>
@@ -371,7 +370,7 @@ namespace D3D12Bundles {
             {
                 byte[] vertexShader;
                 byte[] pixelShader1;
-                if (!UseMutinyAssets) {
+                if (UseRawHlslShaders) {
                     var options = new Vortice.Dxc.DxcCompilerOptions { ShaderModel = Vortice.Dxc.DxcShaderModel.Model6_0 };
                     var fileName = @"..\..\..\shader_mesh_simple_vert.hlsl";
                     var shaderSource = File.ReadAllText(fileName);
@@ -388,7 +387,7 @@ namespace D3D12Bundles {
                 var shader1 = new SimpleShader();
                 var shaderGenerator = new ShaderGenerator(shader1);
                 ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                if (UseMutinyAssets) {
+                if (!UseRawHlslShaders) {
                     vertexShader = ShaderCompiler.Compile(ShaderStage.VertexShader, result.ShaderSource, UseMutinyAssets ? nameof(shader1.MutinyVSMain) : nameof(shader1.VSMain));
                     pixelShader1 = ShaderCompiler.Compile(ShaderStage.PixelShader, result.ShaderSource, nameof(shader1.PSMain));
                 }

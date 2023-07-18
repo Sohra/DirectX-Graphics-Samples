@@ -105,7 +105,7 @@ namespace D3D12Bundles {
                         // Set this city's CBV table and move to the next descriptor.
                         commandList.SetGraphicsRootConstantBufferViewGpuBound(2, mConstantBufferViews[i * mCityColumnCount + j]);
 
-                        mLogger.Debug("Rendering instance {InstanceNum} at {Translation}", i * mCityColumnCount + j, mModelMatrices[i * mCityColumnCount + j].Translation);
+                        mLogger.Debug("Recording rendering of instance {InstanceNum} at {Translation}", i * mCityColumnCount + j, mModelMatrices[i * mCityColumnCount + j].Translation);
                         commandList.DrawIndexedInstanced(numIndices, 1, 0, 0, 0);
                     }
                 }
@@ -130,7 +130,7 @@ namespace D3D12Bundles {
                         mvp = Matrix4x4.Transpose(mvp);
 
                     // Copy this matrix into the appropriate location in the upload heap subresource.
-                    mConstantBufferViews[i * mCityColumnCount + j].Resource.SetData(mvp, (uint)((i * mCityColumnCount + j) * Unsafe.SizeOf<Matrix4x4>()));
+                    mConstantBufferViews[i * mCityColumnCount + j].Resource.SetData(mvp, (uint)((i * mCityColumnCount + j) * Unsafe.SizeOf<SceneConstantBuffer>()));
                 }
             }
         }
