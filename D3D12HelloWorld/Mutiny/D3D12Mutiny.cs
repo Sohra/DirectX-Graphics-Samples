@@ -35,15 +35,11 @@ namespace D3D12HelloWorld.Mutiny {
         RawRect mScissorRect;
         GraphicsDevice mGraphicsDevice;
         GraphicsPresenter mPresenter;
-        ID3D12RootSignature mRootSignature;  //Potentially replaceable by MaterialPass.PipelineState
-        PipelineState mPipelineState;
 
         // App resources.
         GraphicsResource mViewProjectionTransformBuffer;
         ID3D12Resource mIndexBuffer;
         ID3D12Resource mVertexBuffer;
-        Texture mTexture;
-        DescriptorSet mShaderResourceViewDescriptorSet;
         IEnumerable<ShaderResourceView> mShaderResourceViews;
         Model mModel;
 
@@ -319,72 +315,6 @@ namespace D3D12HelloWorld.Mutiny {
         /// Load the sample assets
         /// </summary>
         void LoadAssets() {
-            GraphicsResource textureUploadBuffer;
-
-            // Create the root signature.
-            {
-                var highestVersion = mGraphicsDevice.NativeDevice.CheckHighestRootSignatureVersion(RootSignatureVersion.Version11);
-                var sampler = new StaticSamplerDescription {
-                    Filter = Filter.MinMagMipPoint,
-                    AddressU = TextureAddressMode.Border,
-                    AddressV = TextureAddressMode.Border,
-                    AddressW = TextureAddressMode.Border,
-                    MipLODBias = 0,
-                    MaxAnisotropy = 0,
-                    ComparisonFunction = ComparisonFunction.Never,
-                    BorderColor = StaticBorderColor.TransparentBlack,
-                    MinLOD = 0.0f,
-                    MaxLOD = 0.0f,
-                    ShaderRegister = 0,
-                    RegisterSpace = 0,
-                    ShaderVisibility = ShaderVisibility.Pixel,
-                };
-                VersionedRootSignatureDescription rootSignatureDesc;
-                switch (highestVersion) {
-                    case RootSignatureVersion.Version11:
-                        var range111 = new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, 0, 0, -1, DescriptorRangeFlags.DataStatic);
-                        var range112 = new DescriptorRange1(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1, DescriptorRangeFlags.DataStatic);
-                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription1 {
-                            Parameters = new[] {
-                                new RootParameter1(new RootDescriptorTable1(range111), ShaderVisibility.All),
-                                new RootParameter1(new RootDescriptorTable1(range112), ShaderVisibility.Pixel),
-                            },
-                            StaticSamplers = new[] { sampler },
-                            Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
-                        });
-                        break;
-
-                    case RootSignatureVersion.Version10:
-                    default:
-                        var range101 = new DescriptorRange(DescriptorRangeType.ConstantBufferView, 1, 0, 0, -1);
-                        var range102 = new DescriptorRange(DescriptorRangeType.ShaderResourceView, 1, 0, 0, -1);
-                        rootSignatureDesc = new VersionedRootSignatureDescription(new RootSignatureDescription {
-                            Parameters = new[] {
-                                new RootParameter(new RootDescriptorTable(range101), ShaderVisibility.All),
-                                new RootParameter(new RootDescriptorTable(range102), ShaderVisibility.Pixel),
-                            },
-                            StaticSamplers = new[] { sampler },
-                            Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
-                        });
-                        break;
-                }
-                mRootSignature = mGraphicsDevice.NativeDevice.CreateRootSignature(0, rootSignatureDesc);
-                mRootSignature.Name = nameof(mRootSignature);
-            }
-
-            // Create the pipeline state, which includes compiling and loading shaders.
-            {
-                // Compile .NET to HLSL
-                var shader = new Shaders();
-                var shaderGenerator = new DirectX12GameEngine.Shaders.ShaderGenerator(shader);
-                DirectX12GameEngine.Shaders.ShaderGeneratorResult result = shaderGenerator.GenerateShader();
-                byte[] vertexShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.VertexShader, result.ShaderSource, nameof(shader.VSMain));
-                byte[] pixelShader = DirectX12GameEngine.Shaders.ShaderCompiler.Compile(DirectX12GameEngine.Shaders.ShaderStage.PixelShader, result.ShaderSource, nameof(shader.PSMain));
-
-                // Describe and create the graphics pipeline state object (PSO).
-                mPipelineState = new PipelineState(mGraphicsDevice, mRootSignature, FlatShadedVertex.InputElements, vertexShader, pixelShader, name: nameof(mPipelineState));
-            }
-
             // Reset the command list, we need it open for initial GPU setup.
             mGraphicsDevice.CommandList.Reset();
 
@@ -407,51 +337,6 @@ namespace D3D12HelloWorld.Mutiny {
                 mGraphicsDevice.CommandList.ResourceBarrierTransition(mShaderResourceViews.First().Resource, ResourceStates.CopyDest, ResourceStates.PixelShaderResource | ResourceStates.NonPixelShaderResource);
             }
 
-            // Create the texture and sampler.
-            {
-                // Describe and create a Texture2D.
-                ResourceDescription textureDesc;
-                    var textureFile = new System.IO.FileInfo(@"..\..\..\..\D3D12HelloWorld\Mutiny\Textures\CannonBoss_tex.jpg");
-                if (!textureFile.Exists) {
-                    throw new System.IO.FileNotFoundException($"Could not find file: {textureFile.FullName}");
-                }
-                else {
-                    using System.IO.FileStream stream = System.IO.File.OpenRead(textureFile.FullName);
-                    var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                    var firstFrame = decoder.Frames.First();
-
-                    var format = firstFrame.Format.BitsPerPixel == 32
-                               ? Format.R8G8B8A8_UNorm
-                               : Format.D24_UNorm_S8_UInt; //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
-                    var pixelSizeInBytes = firstFrame.Format.BitsPerPixel / 8;
-                    var stride = firstFrame.PixelWidth * pixelSizeInBytes;
-                    var pixels = new byte[firstFrame.PixelHeight * stride];
-                    firstFrame.CopyPixels(pixels, stride, 0);
-
-                    ushort mipLevels = 1;
-                    textureDesc = ResourceDescription.Texture2D(format, (uint)firstFrame.PixelWidth, (uint)firstFrame.PixelHeight, 1, mipLevels, 1, 0, ResourceFlags.None);
-                    mTexture = new Texture(mGraphicsDevice, textureDesc, HeapType.Default, nameof(mTexture));
-
-                    mTexture.SetData(pixels.AsSpan());
-
-                    //textureUploadBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, (int)mTexture.SizeInBytes * 4, ResourceFlags.None, HeapType.Upload);
-                    //textureUploadBuffer.NativeResource.Name = nameof(textureUploadBuffer);
-                    //mGraphicsDevice.CommandList.UpdateSubresource(mTexture, textureUploadBuffer.NativeResource, 0, 0, pixels.AsSpan());
-                }
-
-                //NOTE: This is not required if using a copy queue, see MJP comment at https://www.gamedev.net/forums/topic/704025-use-texture2darray-in-d3d12/
-                mGraphicsDevice.CommandList.ResourceBarrierTransition(mTexture, ResourceStates.CopyDest, ResourceStates.PixelShaderResource | ResourceStates.NonPixelShaderResource);
-
-                // Describe and create a SRV for the texture.
-                var srvDesc = new ShaderResourceViewDescription {
-                    Shader4ComponentMapping = ShaderComponentMapping.DefaultComponentMapping(), //D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,  //i.e. default 1:1 mapping
-                    Format = textureDesc.Format,
-                    ViewDimension = ShaderResourceViewDimension.Texture2D,
-                };
-                srvDesc.Texture2D.MipLevels = 1;
-                mShaderResourceViewDescriptorSet = new DescriptorSet(mGraphicsDevice, new[] { new ShaderResourceView(mTexture, srvDesc) });
-            }
-
             // Create Constant Buffer Views
             {
                 mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
@@ -467,9 +352,6 @@ namespace D3D12HelloWorld.Mutiny {
             commandList.Reset(frameResource.CommandAllocator);
 
             // Set necessary state.
-            commandList.SetRootSignature(mPipelineState);
-            commandList.SetShaderVisibleDescriptorHeaps();
-
             commandList.SetViewports(mViewport);
             commandList.SetScissorRectangles(mScissorRect);
 
@@ -494,7 +376,7 @@ namespace D3D12HelloWorld.Mutiny {
                 worldMatrixBuffers[meshIndex].SetData(mModel.Meshes[meshIndex].WorldMatrix, 0);
             }
 
-            frameResource.RecordCommandList(mModel, commandList, mShaderResourceViewDescriptorSet, worldMatrixBuffers, 1);
+            frameResource.RecordCommandList(mModel, commandList, worldMatrixBuffers, 1);
 
             // Indicate that the back buffer will now be used to present.
             commandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource, ResourceStates.RenderTarget, ResourceStates.Present);

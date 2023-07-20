@@ -12,8 +12,9 @@ namespace D3D12HelloWorld.Mutiny {
     internal class FrameResource : IDisposable {
         const int BufferCount = 1;
 
-        GraphicsResource mCbvUploadHeap;
-        ConstantBufferView[] mConstantBufferViews;
+        readonly GraphicsResource mCbvUploadHeap;
+        readonly ConstantBufferView[] mConstantBufferViews;
+
         ulong mFenceValue;
         bool mIsDisposed;
 
@@ -76,7 +77,7 @@ namespace D3D12HelloWorld.Mutiny {
             GC.SuppressFinalize(this);
         }
 
-        public void RecordCommandList(wired.Rendering.Model model, CommandList commandList, DescriptorSet shaderResourceViewDescriptorSet, GraphicsResource[] worldMatrixBuffers, int instanceCount) {
+        public void RecordCommandList(wired.Rendering.Model model, CommandList commandList, GraphicsResource[] worldMatrixBuffers, int instanceCount) {
             int renderTargetCount = 1; //We don't do stereo so this is always 1
             instanceCount *= renderTargetCount;
 
@@ -97,23 +98,14 @@ namespace D3D12HelloWorld.Mutiny {
 
                 int rootParameterIndex = 0;
                 commandList.SetGraphicsRootConstantBufferViewGpuBound(rootParameterIndex++, mConstantBufferViews[0]);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
 
-                //commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
-
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[meshIndex].DefaultConstantBufferView);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
-                //commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
                 if (material.ShaderResourceViewDescriptorSet != null) {
                     commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.ShaderResourceViewDescriptorSet);
-                    //commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, shaderResourceViewDescriptorSet);
                 }
 
-                //if (material.SamplerDescriptorSet != null) {
-                //    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
-                //}
+                if (material.SamplerDescriptorSet != null) {
+                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
+                }
 
                 if (mesh.MeshDraw.IndexBufferView != null) {
                     commandList.DrawIndexedInstanced(mesh.MeshDraw.IndexBufferView.Value.SizeInBytes / (mesh.MeshDraw.IndexBufferView.Value.Format.GetBitsPerPixel() >> 3), instanceCount);

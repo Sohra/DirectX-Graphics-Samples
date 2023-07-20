@@ -753,16 +753,10 @@ namespace wired.Assets {
         [Shader("vertex")]
         [ShaderMethod]
         public PSTVInput VSMain([PositionSemantic] Vector3 position, [TextureCoordinateSemantic] Vector2 uv) {
-            PSTVInput result;
-            //result.Position = position;
-            ////With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
-            //position.X *= 0.1f;
-            //position.Y *= 0.1f;
-            //position.Z *= 0.1f;
-            //result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
-            result.Position = Vector4.Transform(new Vector4(position, 1.0f), WorldViewProj);
-            result.UV = uv;
-            return result;
+            return new PSTVInput {
+                Position = Vector4.Transform(new Vector4(position, 1.0f), WorldViewProj),
+                UV = uv,
+            };
         }
 
         [Shader("pixel")]
@@ -775,14 +769,6 @@ namespace wired.Assets {
         public void Accept(ShaderGeneratorContext context) {
             if (Texture is null)
                 throw new InvalidOperationException($"Cannot use this shader without first constructing with or assigning a {nameof(Texture)}");
-
-            //Based on MaterialShader.Accept, which subclassed RasterizationShaderBase
-            //context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
 
             context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++, 0, -1, DescriptorRangeFlags.DataStatic)), ShaderVisibility.All));
 
