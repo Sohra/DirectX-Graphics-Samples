@@ -415,7 +415,7 @@ namespace wired.Assets {
 
                         Texture diffuseTexture = textureBuilder.Create2dTexture(stream);
 
-                        shader = new TextureShader(diffuseTexture, true);
+                        shader = new TextureShader(diffuseTexture, false);
                     }
                 }
                 else {
@@ -460,22 +460,31 @@ namespace wired.Assets {
             }
 
             public Texture Create2dTexture(FileStream stream) {
-                (Format format, uint width, uint height, byte[] data) = ReadImageStream(stream);
+                (Format format, uint width, uint height, Memory<byte> data) = ReadImageStream(stream);
                 var textureDesc = ResourceDescription.Texture2D(format, width, height, 1, 1, 1, 0, ResourceFlags.None);
 
                 var texture = new Texture(mDevice, textureDesc, HeapType.Default);
-                texture.SetData(data.AsSpan());
+                //I can't for the life of me figure out why this doesn't work:
+                //texture.SetData(data.Span);
+
+                //But the below does:
+                var uploadBufferSize = texture.SizeInBytes * 4;
+
+                var textureUploadBuffer = GraphicsResource.CreateBuffer(mDevice, (int)uploadBufferSize, ResourceFlags.None, HeapType.Upload);
+                textureUploadBuffer.NativeResource.Name = nameof(textureUploadBuffer);
+                mDevice.CommandList.UpdateSubresource(texture, textureUploadBuffer.NativeResource, 0, 0, data.Span);
+
                 return texture;
             }
 
-            protected abstract (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream);
+            protected abstract (Format Format, uint Width, uint Height, Memory<byte> Data) ReadImageStream(Stream stream);
         }
 
         class DdsTexture2dBuilder : Texture2dBuilder {
             public DdsTexture2dBuilder(GraphicsDevice device) : base(device) {
             }
 
-            protected override (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream) {
+            protected override (Format Format, uint Width, uint Height, Memory<byte> Data) ReadImageStream(Stream stream) {
                 var pfimConfig = new Pfim.PfimConfig();
                 Pfim.Dds image = Pfim.Dds.Create(stream, pfimConfig);
 
@@ -491,7 +500,7 @@ namespace wired.Assets {
             public JpgTexture2dBuilder(GraphicsDevice device) : base(device) {
             }
 
-            protected override (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream) {
+            protected override (Format Format, uint Width, uint Height, Memory<byte> Data) ReadImageStream(Stream stream) {
                 var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
                 var firstFrame = decoder.Frames.First();
 

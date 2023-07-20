@@ -6,7 +6,6 @@ using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Threading;
 using System.Windows.Forms;
 using System.Windows.Media;
 using Vortice;
@@ -40,11 +39,11 @@ namespace D3D12HelloWorld.Mutiny {
         PipelineState mPipelineState;
 
         // App resources.
-        GraphicsResource mCbvUploadHeap;
-        ConstantBufferView[] mConstantBufferViews;
         GraphicsResource mViewProjectionTransformBuffer;
         ID3D12Resource mIndexBuffer;
         ID3D12Resource mVertexBuffer;
+        Texture mTexture;
+        DescriptorSet mShaderResourceViewDescriptorSet;
         IEnumerable<ShaderResourceView> mShaderResourceViews;
         Model mModel;
 
@@ -129,13 +128,9 @@ namespace D3D12HelloWorld.Mutiny {
             mCurrentFrameResource.WaitForSignal(mGraphicsDevice.DirectCommandQueue);
 
             //UpdateViewProjectionMatrices();
-            var model = Matrix4x4.CreateTranslation(0.0f, 0.0f, 0.0f);
             var view = CreateLookTo(new Vector3(8, 8, 30), -Vector3.UnitZ, Vector3.UnitY);
             var projection = Matrix4x4.CreatePerspectiveFieldOfView(0.8f, mAspectRatio, 1.0f, 1000.0f);
-            Matrix4x4 mvp = model * view * projection;
-
-            // Copy this matrix into the appropriate location in the upload heap subresource.
-            mConstantBufferViews[0].Resource.SetData(mvp, (uint)((0) * mConstantBufferViews[0].Resource.SizeInBytes));
+            mCurrentFrameResource.UpdateConstantBuffers(view, projection);
         }
 
         /// <summary>
@@ -170,8 +165,6 @@ namespace D3D12HelloWorld.Mutiny {
             }
 
             mViewProjectionTransformBuffer.Dispose();
-
-            mCbvUploadHeap.Unmap(0);
 
             foreach (var frameResource in mFrameResources) {
                 frameResource.Dispose();
@@ -326,6 +319,8 @@ namespace D3D12HelloWorld.Mutiny {
         /// Load the sample assets
         /// </summary>
         void LoadAssets() {
+            GraphicsResource textureUploadBuffer;
+
             // Create the root signature.
             {
                 var highestVersion = mGraphicsDevice.NativeDevice.CheckHighestRootSignatureVersion(RootSignatureVersion.Version11);
@@ -354,7 +349,6 @@ namespace D3D12HelloWorld.Mutiny {
                                 new RootParameter1(new RootDescriptorTable1(range111), ShaderVisibility.All),
                                 new RootParameter1(new RootDescriptorTable1(range112), ShaderVisibility.Pixel),
                             },
-
                             StaticSamplers = new[] { sampler },
                             Flags = RootSignatureFlags.AllowInputAssemblerInputLayout,
                         });
@@ -408,39 +402,58 @@ namespace D3D12HelloWorld.Mutiny {
                 mModel = firstMesh.Model;
                 mShaderResourceViews = firstMesh.ShaderResourceViews;
 
-                //mCommandList.ResourceBarrier(ResourceBarrier.BarrierTransition(mShaderResourceViews.First().Resource.NativeResource, ResourceStates.Common, ResourceStates.PixelShaderResource));
-                //Upload texture data to the GPU
-                //TODO:
-                //CpuDescriptorHandle destinationDescriptor = mSrvHeap!.Allocate(1);
-                //mGraphicsDevice.NativeDevice.CopyDescriptorsSimple(1, destinationDescriptor, mModel.Materials.First().ShaderResourceViewDescriptorSet!.StartCpuDescriptorHandle, mSrvHeap.DescriptorHeap.Description.Type);
-                //GpuDescriptorHandle gpuDescriptor = mSrvHeap.GetGpuDescriptorHandle(destinationDescriptor);
-                //mGraphicsDevice.CopyCommandQueue.ExecuteCommandList
+                //Required because DX12GE ShaderGeneratorContext.FillShaderResourceViewRootParameters it always adds the root parameter with ShaderVisibility.All instead of ShaderVisibility.Pixel which is what the C++ samples ultimately used.
+                //mGraphicsDevice.CommandList.ResourceBarrierTransition(mShaderResourceViews.First().Resource, ResourceStates.CopyDest, ResourceStates.PixelShaderResource);
+                mGraphicsDevice.CommandList.ResourceBarrierTransition(mShaderResourceViews.First().Resource, ResourceStates.CopyDest, ResourceStates.PixelShaderResource | ResourceStates.NonPixelShaderResource);
+            }
 
+            // Create the texture and sampler.
+            {
+                // Describe and create a Texture2D.
+                ResourceDescription textureDesc;
+                    var textureFile = new System.IO.FileInfo(@"..\..\..\..\D3D12HelloWorld\Mutiny\Textures\CannonBoss_tex.jpg");
+                if (!textureFile.Exists) {
+                    throw new System.IO.FileNotFoundException($"Could not find file: {textureFile.FullName}");
+                }
+                else {
+                    using System.IO.FileStream stream = System.IO.File.OpenRead(textureFile.FullName);
+                    var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                    var firstFrame = decoder.Frames.First();
+
+                    var format = firstFrame.Format.BitsPerPixel == 32
+                               ? Format.R8G8B8A8_UNorm
+                               : Format.D24_UNorm_S8_UInt; //Used for a depth stencil, for a 24bit image consider Format.R8G8B8_UNorm
+                    var pixelSizeInBytes = firstFrame.Format.BitsPerPixel / 8;
+                    var stride = firstFrame.PixelWidth * pixelSizeInBytes;
+                    var pixels = new byte[firstFrame.PixelHeight * stride];
+                    firstFrame.CopyPixels(pixels, stride, 0);
+
+                    ushort mipLevels = 1;
+                    textureDesc = ResourceDescription.Texture2D(format, (uint)firstFrame.PixelWidth, (uint)firstFrame.PixelHeight, 1, mipLevels, 1, 0, ResourceFlags.None);
+                    mTexture = new Texture(mGraphicsDevice, textureDesc, HeapType.Default, nameof(mTexture));
+
+                    mTexture.SetData(pixels.AsSpan());
+
+                    //textureUploadBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, (int)mTexture.SizeInBytes * 4, ResourceFlags.None, HeapType.Upload);
+                    //textureUploadBuffer.NativeResource.Name = nameof(textureUploadBuffer);
+                    //mGraphicsDevice.CommandList.UpdateSubresource(mTexture, textureUploadBuffer.NativeResource, 0, 0, pixels.AsSpan());
+                }
+
+                //NOTE: This is not required if using a copy queue, see MJP comment at https://www.gamedev.net/forums/topic/704025-use-texture2darray-in-d3d12/
+                mGraphicsDevice.CommandList.ResourceBarrierTransition(mTexture, ResourceStates.CopyDest, ResourceStates.PixelShaderResource | ResourceStates.NonPixelShaderResource);
+
+                // Describe and create a SRV for the texture.
+                var srvDesc = new ShaderResourceViewDescription {
+                    Shader4ComponentMapping = ShaderComponentMapping.DefaultComponentMapping(), //D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,  //i.e. default 1:1 mapping
+                    Format = textureDesc.Format,
+                    ViewDimension = ShaderResourceViewDimension.Texture2D,
+                };
+                srvDesc.Texture2D.MipLevels = 1;
+                mShaderResourceViewDescriptorSet = new DescriptorSet(mGraphicsDevice, new[] { new ShaderResourceView(mTexture, srvDesc) });
             }
 
             // Create Constant Buffer Views
             {
-                // Create an upload heap for the constant buffers.
-                mCbvUploadHeap = GraphicsResource.CreateBuffer(mGraphicsDevice, (Unsafe.SizeOf<Matrix4x4>() + 255) & ~255,
-                                                               ResourceFlags.None, HeapType.Upload);
-                mCbvUploadHeap.NativeResource.Name = nameof(mCbvUploadHeap);
-
-                // Map the constant buffers. Note that unlike D3D11, the resource 
-                // does not need to be unmapped for use by the GPU. In this sample, 
-                // the resource stays 'permanently' mapped to avoid overhead with 
-                // mapping/unmapping each frame.
-                mCbvUploadHeap.Map(0);
-
-                // Create CBVs
-                var constantBufferViews = new ConstantBufferView[1];
-                var constantBufferSize = mCbvUploadHeap.SizeInBytes;
-                ulong cbOffset = 0;
-                constantBufferViews[0] = new ConstantBufferView(mCbvUploadHeap, cbOffset, constantBufferSize, mGraphicsDevice.ShaderVisibleShaderResourceViewAllocator);
-                // Increment the offset for the next one
-                cbOffset += constantBufferSize;
-                mConstantBufferViews = constantBufferViews;
-
-
                 mViewProjectionTransformBuffer = GraphicsResource.CreateBuffer(mGraphicsDevice, 256, ResourceFlags.None, HeapType.Upload);
             }
 
@@ -481,58 +494,12 @@ namespace D3D12HelloWorld.Mutiny {
                 worldMatrixBuffers[meshIndex].SetData(mModel.Meshes[meshIndex].WorldMatrix, 0);
             }
 
-            RecordCommandList(mModel, commandList, worldMatrixBuffers, 1);
+            frameResource.RecordCommandList(mModel, commandList, mShaderResourceViewDescriptorSet, worldMatrixBuffers, 1);
 
             // Indicate that the back buffer will now be used to present.
             commandList.ResourceBarrierTransition(mPresenter.BackBuffer.Resource, ResourceStates.RenderTarget, ResourceStates.Present);
 
             return commandList.Close();
         }
-
-        private void RecordCommandList(Model model, CommandList commandList, GraphicsResource[] worldMatrixBuffers, int instanceCount) {
-            int renderTargetCount = 1; //We don't do stereo so this is always 1
-            instanceCount *= renderTargetCount;
-
-            for (int meshIndex = 0; meshIndex < model.Meshes.Count; meshIndex++) {
-                var mesh = model.Meshes[meshIndex];
-                var material = model.Materials[mesh.MaterialIndex];
-
-                commandList.SetPipelineState(material.PipelineState!, true);
-                commandList.SetShaderVisibleDescriptorHeaps();
-
-                commandList.SetPrimitiveTopology(Vortice.Direct3D.PrimitiveTopology.TriangleList);
-                commandList.SetIndexBuffer(mesh.MeshDraw.IndexBufferView);
-                commandList.SetVertexBuffers(0, mesh.MeshDraw.VertexBufferViews!);
-
-
-                int rootParameterIndex = 0;
-                commandList.SetGraphicsRootConstantBufferViewGpuBound(rootParameterIndex++, mConstantBufferViews[0]);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
-
-                //commandList.SetGraphicsRoot32BitConstant(rootParameterIndex++, renderTargetCount, 0);
-
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mGlobalBuffer.DefaultConstantBufferView);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mViewProjectionTransformBuffer.DefaultConstantBufferView);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, worldMatrixBuffers[meshIndex].DefaultConstantBufferView);
-                //commandList.SetGraphicsRootConstantBufferView(rootParameterIndex++, mDirectionalLightGroupBuffer.DefaultConstantBufferView);
-                //commandList.SetGraphicsRootSampler(rootParameterIndex++, mDefaultSampler);
-                if (material.ShaderResourceViewDescriptorSet != null) {
-                    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.ShaderResourceViewDescriptorSet);
-                }
-
-                //if (material.SamplerDescriptorSet != null) {
-                //    commandList.SetGraphicsRootDescriptorTable(rootParameterIndex++, material.SamplerDescriptorSet);
-                //}
-
-                if (mesh.MeshDraw.IndexBufferView != null) {
-                    commandList.DrawIndexedInstanced(mesh.MeshDraw.IndexBufferView.Value.SizeInBytes / (mesh.MeshDraw.IndexBufferView.Value.Format.GetBitsPerPixel() >> 3), instanceCount);
-                }
-                else {
-                    var firstVertexBufferView = mesh.MeshDraw.VertexBufferViews!.First();
-                    commandList.DrawInstanced(firstVertexBufferView.SizeInBytes / firstVertexBufferView.StrideInBytes, instanceCount);
-                }
-            }
-        }
-
     }
 }

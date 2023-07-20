@@ -47,10 +47,13 @@ namespace wired.Graphics {
     }
 
     public sealed class Texture : GraphicsResource {
-        public Texture(GraphicsDevice device, ResourceDescription description, HeapType heapType)
+        public Texture(GraphicsDevice device, ResourceDescription description, HeapType heapType, string? name = null)
             : base(device, description, heapType) {
             if (description.Dimension < ResourceDimension.Texture1D) {
-                throw new ArgumentException();
+                throw new ArgumentException($"Cannot create a Texture instance for a '{description.Dimension}' resource.", nameof(description));
+            }
+            if (!string.IsNullOrWhiteSpace(name)) {
+                NativeResource.Name = name;
             }
         }
 

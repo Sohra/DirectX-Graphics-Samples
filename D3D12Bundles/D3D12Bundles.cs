@@ -65,8 +65,8 @@ namespace D3D12Bundles {
         // Pipeline objects.
         Viewport mViewport;
         RawRect mScissorRect;
-        GraphicsPresenter mPresenter;
         GraphicsDevice mGraphicsDevice;
+        GraphicsPresenter mPresenter;
         ID3D12RootSignature mRootSignature;
         PipelineState mPipelineState1;
         PipelineState mPipelineState2;
