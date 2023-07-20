@@ -32,7 +32,7 @@ namespace wired.Graphics {
             mCommandList = device.NativeDevice.CreateCommandList<ID3D12GraphicsCommandList>(commandListType, mCommandAllocator, initialState?.NativePipelineState);
             mCommandList.Name = $"{commandListType} Command List ({mCommandAllocator.GetHashCode()})";
 
-            SetDescriptorHeaps(device.ShaderVisibleShaderResourceViewAllocator, device.ShaderVisibleSamplerAllocator);
+            SetDescriptorHeaps(mDevice.ShaderVisibleShaderResourceViewAllocator, mDevice.ShaderVisibleSamplerAllocator);
         }
 
         public void ClearDepthStencilView(DepthStencilView depthStencilView, ClearFlags clearFlags, float depth = 1.0f, byte stencil = 0, params Rectangle[] rectangles) {
@@ -85,23 +85,20 @@ namespace wired.Graphics {
             GetCommandQueue().ExecuteCommandLists(Close());
         }
 
-        public void Reset() {
-            mCommandAllocator.Reset();
-            mCommandList.Reset(mCommandAllocator, null);
+        public void Reset(ID3D12CommandAllocator? commandAllocatorOverride = null) {
+            ID3D12CommandAllocator commandAllocator = commandAllocatorOverride ?? mCommandAllocator;
+
+            // Command list allocators can only be reset when the associated
+            // command lists have finished execution on the GPU; apps should use
+            // fences to determine GPU execution progress.
+            commandAllocator.Reset();
+
+            // However, when ExecuteCommandList() is called on a particular command
+            // list, that command list can then be reset at any time and must be before
+            // re-recording.
+            mCommandList.Reset(commandAllocator, null);
             mIsCommandListClosed = false;
             SetDescriptorHeaps(mDevice.ShaderVisibleShaderResourceViewAllocator, mDevice.ShaderVisibleSamplerAllocator);
-        }
-
-        [Obsolete("Work to refactor off this in favour of Reset() and SetPipelineState(PipelineState), which only uses our own allocator, and which sets the root signature according to the pipeline state.")]
-        public void Reset(ID3D12CommandAllocator commandAllocator, PipelineState pipelineState) {
-            mCommandList.Reset(commandAllocator, pipelineState.NativePipelineState);
-            mIsCommandListClosed = false;
-        }
-
-        [Obsolete("Work to refactor off this in favour of SetPipelineState(PipelineState), which sets the root signature according to the pipeline state, and which sets the descriptor heaps for the shaders and samplers managed by GraphicsDevice.")]
-        public void SetNecessaryState(ID3D12RootSignature rootSignature, params ID3D12DescriptorHeap[] descriptorHeaps) {
-            mCommandList.SetGraphicsRootSignature(rootSignature);
-            mCommandList.SetDescriptorHeaps(descriptorHeaps);
         }
 
         public void ResourceBarrierTransition(GraphicsResource resource, ResourceStates stateBefore, ResourceStates stateAfter) {
@@ -112,6 +109,12 @@ namespace wired.Graphics {
             mCommandList.SetGraphicsRoot32BitConstant(rootParameterIndex, srcData, destOffsetIn32BitValues);
         }
 
+        /// <summary>
+        /// Sets a constant buffer view (CBV) in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="constantBufferView">The constant buffer view to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the shader resource view descriptor heap is null.</exception>
         public void SetGraphicsRootConstantBufferView(int rootParameterIndex, ConstantBufferView constantBufferView) {
             if (mShaderResourceViewDescriptorHeap == null) {
                 throw new InvalidOperationException();
@@ -120,6 +123,27 @@ namespace wired.Graphics {
             SetGraphicsRootDescriptorTable(rootParameterIndex, mShaderResourceViewDescriptorHeap, constantBufferView.CpuDescriptorHandle, 1);
         }
 
+        /// <summary>
+        /// Sets a constant buffer view (CBV) in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="constantBufferView">The constant buffer view to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the shader resource view descriptor heap is null.</exception>
+        public void SetGraphicsRootConstantBufferViewGpuBound(int rootParameterIndex, ConstantBufferView constantBufferView) {
+            if (mShaderResourceViewDescriptorHeap == null) {
+                throw new InvalidOperationException();
+            }
+
+            GpuDescriptorHandle baseDescriptor = mShaderResourceViewDescriptorHeap.GetGpuDescriptorHandle(constantBufferView.CpuDescriptorHandle);
+            mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, baseDescriptor);
+        }
+
+        /// <summary>
+        /// Sets a sampler in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="sampler">The sampler to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the sampler descriptor heap is null.</exception>
         public void SetGraphicsRootSampler(int rootParameterIndex, Sampler sampler) {
             if (mSamplerDescriptorHeap == null) {
                 throw new InvalidOperationException();
@@ -128,6 +152,12 @@ namespace wired.Graphics {
             SetGraphicsRootDescriptorTable(rootParameterIndex, mSamplerDescriptorHeap, sampler.CpuDescriptorHandle, 1);
         }
 
+        /// <summary>
+        /// Sets a descriptor table in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="descriptorSet">The descriptor set to set.</param>
+        /// <exception cref="InvalidOperationException">Thrown when the appropriate descriptor heap is null.</exception>
         public void SetGraphicsRootDescriptorTable(int rootParameterIndex, DescriptorSet descriptorSet) {
             DescriptorAllocator? descriptorAllocator = (descriptorSet.DescriptorHeapType == DescriptorHeapType.ConstantBufferViewShaderResourceViewUnorderedAccessView)
                                                      ? mShaderResourceViewDescriptorHeap
@@ -139,6 +169,13 @@ namespace wired.Graphics {
             SetGraphicsRootDescriptorTable(rootParameterIndex, descriptorAllocator, descriptorSet.StartCpuDescriptorHandle, descriptorSet.DescriptorCapacity);
         }
 
+        /// <summary>
+        /// Sets a descriptor table in the root signature for the graphics pipeline.
+        /// </summary>
+        /// <param name="rootParameterIndex">The index of the root parameter in the root signature.</param>
+        /// <param name="descriptorAllocator">The descriptor allocator to use.</param>
+        /// <param name="baseDescriptor">The base descriptor to use.</param>
+        /// <param name="descriptorCount">The number of descriptors to set.</param>
         private void SetGraphicsRootDescriptorTable(int rootParameterIndex, DescriptorAllocator descriptorAllocator, CpuDescriptorHandle baseDescriptor, int descriptorCount) {
             GpuDescriptorHandle value = CopyDescriptors(descriptorAllocator, baseDescriptor, descriptorCount);
             mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, value);
@@ -148,14 +185,10 @@ namespace wired.Graphics {
             mCommandList.IASetIndexBuffer(indexBufferView);
         }
 
-        public void SetPipelineState(PipelineState pipelineState) {
-            if (pipelineState.IsCompute) {
-                mCommandList.SetComputeRootSignature(pipelineState.RootSignature);
+        public void SetPipelineState(PipelineState pipelineState, bool setRootSignature) {
+            if (setRootSignature) {
+                SetRootSignature(pipelineState);
             }
-            else {
-                mCommandList.SetGraphicsRootSignature(pipelineState.RootSignature);
-            }
-
             mCommandList.SetPipelineState(pipelineState.NativePipelineState);
         }
 
@@ -183,6 +216,15 @@ namespace wired.Graphics {
             }
         }
 
+        public void SetRootSignature(PipelineState pipelineState) {
+            if (pipelineState.IsCompute) {
+                mCommandList.SetComputeRootSignature(pipelineState.RootSignature);
+            }
+            else {
+                mCommandList.SetGraphicsRootSignature(pipelineState.RootSignature);
+            }
+        }
+
         public void SetScissorRectangles(params Rectangle[] scissorRectangles) {
             if (scissorRectangles.Length > D3D12.ViewportAndScissorRectObjectCountPerPipeline) {
                 throw new ArgumentOutOfRangeException(nameof(scissorRectangles), scissorRectangles.Length, $"The maximum number of scissor rectangles is {D3D12.ViewportAndScissorRectObjectCountPerPipeline}.");
@@ -195,6 +237,10 @@ namespace wired.Graphics {
             scissorRectangles.CopyTo(ScissorRectangles, 0);
 
             mCommandList.RSSetScissorRects(scissorRectangles.Select(r => new RawRect(r.Left, r.Top, r.Right, r.Bottom)).ToArray());
+        }
+
+        public void SetShaderVisibleDescriptorHeaps() {
+            SetDescriptorHeaps(mDevice.ShaderVisibleShaderResourceViewAllocator, mDevice.ShaderVisibleSamplerAllocator);
         }
 
         public void SetVertexBuffers(int startSlot, params VertexBufferView[] vertexBufferViews) {
@@ -218,6 +264,10 @@ namespace wired.Graphics {
         public ulong UpdateSubresource(GraphicsResource destResource, ID3D12Resource intermediateResource,
                                        ulong intermediateOffset, int firstSubresource, ReadOnlySpan<byte> data)
             => mDevice.NativeDevice.UpdateSubresource(mCommandList, destResource.NativeResource, intermediateResource, intermediateOffset, firstSubresource, data);
+
+        public ulong UpdateSubresources(GraphicsResource destResource, ID3D12Resource intermediateResource,
+                                        ulong intermediateOffset, int firstSubresource, SubresourceInfo[] subresourceInfo)
+            => mDevice.NativeDevice.UpdateSubResources(mCommandList, destResource.NativeResource, intermediateResource, intermediateOffset, firstSubresource, subresourceInfo);
 
         GpuDescriptorHandle CopyDescriptors(DescriptorAllocator descriptorAllocator, CpuDescriptorHandle baseDescriptor, int descriptorCount) {
             CpuDescriptorHandle intPtr = descriptorAllocator.Allocate(descriptorCount);
@@ -251,9 +301,5 @@ namespace wired.Graphics {
             mCommandList.OMSetRenderTargets(renderTargetDescriptor, depthStencilDescriptor);
         }
 
-        [Obsolete("Work to refactor off this in favour of SetGraphicsRootDescriptorTable(int, DescriptorSet).")]
-        internal void SetGraphicsRootDescriptorTable(int rootParameterIndex, GpuDescriptorHandle baseDesciptor) {
-            mCommandList.SetGraphicsRootDescriptorTable(rootParameterIndex, baseDesciptor);
-        }
     }
 }

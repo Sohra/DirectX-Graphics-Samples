@@ -415,7 +415,7 @@ namespace wired.Assets {
 
                         Texture diffuseTexture = textureBuilder.Create2dTexture(stream);
 
-                        shader = new TextureShader(diffuseTexture, true);
+                        shader = new TextureShader(diffuseTexture, false);
                     }
                 }
                 else {
@@ -460,22 +460,31 @@ namespace wired.Assets {
             }
 
             public Texture Create2dTexture(FileStream stream) {
-                (Format format, uint width, uint height, byte[] data) = ReadImageStream(stream);
+                (Format format, uint width, uint height, Memory<byte> data) = ReadImageStream(stream);
                 var textureDesc = ResourceDescription.Texture2D(format, width, height, 1, 1, 1, 0, ResourceFlags.None);
 
                 var texture = new Texture(mDevice, textureDesc, HeapType.Default);
-                texture.SetData(data.AsSpan());
+                //I can't for the life of me figure out why this doesn't work:
+                //texture.SetData(data.Span);
+
+                //But the below does:
+                var uploadBufferSize = texture.SizeInBytes * 4;
+
+                var textureUploadBuffer = GraphicsResource.CreateBuffer(mDevice, (int)uploadBufferSize, ResourceFlags.None, HeapType.Upload);
+                textureUploadBuffer.NativeResource.Name = nameof(textureUploadBuffer);
+                mDevice.CommandList.UpdateSubresource(texture, textureUploadBuffer.NativeResource, 0, 0, data.Span);
+
                 return texture;
             }
 
-            protected abstract (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream);
+            protected abstract (Format Format, uint Width, uint Height, Memory<byte> Data) ReadImageStream(Stream stream);
         }
 
         class DdsTexture2dBuilder : Texture2dBuilder {
             public DdsTexture2dBuilder(GraphicsDevice device) : base(device) {
             }
 
-            protected override (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream) {
+            protected override (Format Format, uint Width, uint Height, Memory<byte> Data) ReadImageStream(Stream stream) {
                 var pfimConfig = new Pfim.PfimConfig();
                 Pfim.Dds image = Pfim.Dds.Create(stream, pfimConfig);
 
@@ -491,7 +500,7 @@ namespace wired.Assets {
             public JpgTexture2dBuilder(GraphicsDevice device) : base(device) {
             }
 
-            protected override (Format Format, uint Width, uint Height, byte[] Data) ReadImageStream(Stream stream) {
+            protected override (Format Format, uint Width, uint Height, Memory<byte> Data) ReadImageStream(Stream stream) {
                 var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
                 var firstFrame = decoder.Frames.First();
 
@@ -723,31 +732,31 @@ namespace wired.Assets {
             ConvertToLinear = convertToLinear;
         }
 
+        [ConstantBufferView(0)]
+        public Matrix4x4 WorldViewProj { get; set; }
+
         [IgnoreShaderMember]
         public Texture? Texture { get; set; }
 
         [IgnoreShaderMember]
         public bool ConvertToLinear { get; set; }
 
-        [ShaderMember]
+        //The type of this property specifies the appropriate attribute, no need to add another
+        //[ShaderMember]
         public SamplerState Sampler { get; set; }
 
-        [ShaderMember]
+        //The type of this property specifies the appropriate attribute, no need to add another
+        //[ShaderMember]
         public Texture2D ColorTexture { get; set; }
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         [Shader("vertex")]
         [ShaderMethod]
-        public PSTVInput VSMain([PositionSemantic] Vector4 position, [TextureCoordinateSemantic] Vector2 uv) {
-            PSTVInput result;
-            //result.Position = position;
-            //With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
-            position.X *= 0.1f;
-            position.Y *= 0.1f;
-            position.Z *= 0.1f;
-            result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
-            result.UV = uv;
-            return result;
+        public PSTVInput VSMain([PositionSemantic] Vector3 position, [TextureCoordinateSemantic] Vector2 uv) {
+            return new PSTVInput {
+                Position = Vector4.Transform(new Vector4(position, 1.0f), WorldViewProj),
+                UV = uv,
+            };
         }
 
         [Shader("pixel")]
@@ -761,13 +770,7 @@ namespace wired.Assets {
             if (Texture is null)
                 throw new InvalidOperationException($"Cannot use this shader without first constructing with or assigning a {nameof(Texture)}");
 
-            //Based on MaterialShader.Accept, which subclassed RasterizationShaderBase
-            //context.RootParameters.Add(new RootParameter1(new RootConstants(context.ConstantBufferViewRegisterCount++, 0, 1), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
-            //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++, 0, -1, DescriptorRangeFlags.DataStatic)), ShaderVisibility.All));
 
             ColorTexture = new Texture2D(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
             context.ShaderResourceViews.Add(ColorTexture);

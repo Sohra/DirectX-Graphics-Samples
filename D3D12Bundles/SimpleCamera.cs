@@ -74,7 +74,6 @@ namespace D3D12Bundles {
 
         public Matrix4x4 GetViewMatrix() {
             var viewMatrix = CreateLookTo(mPosition, mLookDirection, mUpDirection);
-            //return Matrix4x4.Transpose(viewMatrix);
             return viewMatrix;
         }
 
@@ -82,9 +81,6 @@ namespace D3D12Bundles {
             //Checking the source, this appears to be a right-handed matrix... equivalent of DirectX::XMMatrixPerspectiveFovRH
             var projectionMatrix = Matrix4x4.CreatePerspectiveFieldOfView(fov, aspectRatio, nearPlane, farPlane);
             return projectionMatrix;
-            //var projectionMatrix = Matrix4x4.CreatePerspectiveFieldOfView(fov, aspectRatio, nearPlane, farPlane);
-            //Matrix4x4.Invert(projectionMatrix, out var projectionMatrixRh);
-            //return projectionMatrixRh;
         }
 
         public void SetMoveSpeed(float unitsPerSecond) {

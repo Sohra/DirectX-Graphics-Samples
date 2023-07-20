@@ -7,12 +7,19 @@ namespace D3D12Bundles {
     {
         [PositionSemantic]
         public Vector3 Position;
-        //[NormalSemantic]
-        //public Vector3 Normal;
+        [NormalSemantic]
+        public Vector3 Normal;
         [TextureCoordinateSemantic(0)]
         public Vector2 UV;
-        //[TangentSemantic]
-        //public Vector3 Tangent;
+        [TangentSemantic]
+        public Vector3 Tangent;
+    }
+
+    public struct MutinyVSInput {
+        [PositionSemantic]
+        public Vector3 Position;
+        [TextureCoordinateSemantic(0)]
+        public Vector2 UV;
     }
 
     public struct PSInput
@@ -91,6 +98,17 @@ namespace D3D12Bundles {
         [ShaderMethod]
         [Shader("vertex")]
         public PSInput VSMain(VSInput input) {
+            PSInput result;
+
+            result.Position = Vector4.Transform(new Vector4(input.Position, 1.0f), WorldViewProj);
+            result.UV = input.UV;
+
+            return result;
+        }
+
+        [ShaderMethod]
+        [Shader("vertex")]
+        public PSInput MutinyVSMain(MutinyVSInput input) {
             PSInput result;
 
             result.Position = Vector4.Transform(new Vector4(input.Position, 1.0f), WorldViewProj);

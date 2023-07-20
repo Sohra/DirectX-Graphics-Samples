@@ -18,13 +18,9 @@ namespace wired.Graphics {
                 throw new ArgumentOutOfRangeException(nameof(descriptorCount), $"Descriptor count must be between 1 and {DescriptorsPerHeap}.");
             }
 
-            //Type = descriptorHeapType;
-            //Flags = descriptorHeapFlags;
-
             DescriptorHandleIncrementSize = device.GetDescriptorHandleIncrementSize(descriptorHeapType);
             mDescription = new DescriptorHeapDescription(descriptorHeapType, descriptorCount, descriptorHeapFlags);
             DescriptorHeap = device.CreateDescriptorHeap(mDescription);
-            //DescriptorCapacity = descriptorCount;
         }
 
         public CpuDescriptorHandle Allocate(int count) {

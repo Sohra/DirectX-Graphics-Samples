@@ -1,8 +1,11 @@
 ﻿using Serilog;
+using System;
 using System.Diagnostics;
+using System.Linq;
 using Vortice.Direct3D12;
+using wired.Graphics;
 
-namespace D3D12Bundles {
+namespace wired.Games {
     /// <summary>
     /// Inspired by PIX Performance Tuning and Debugging, namely, PIXBeginEvent and PIXEndEvent
     /// </summary>
@@ -18,7 +21,7 @@ namespace D3D12Bundles {
         /// <param name="eventName">The name to use to describe the event</param>
         /// <param name="logger"></param>
         public ProfilingEvent(object context, string eventName, ILogger logger) {
-            if (!new[] { typeof(ID3D12GraphicsCommandList), typeof(ID3D12CommandQueue), typeof(wired.Graphics.CommandList), }.Contains(context.GetType())) {
+            if (!new[] { typeof(ID3D12GraphicsCommandList), typeof(ID3D12CommandQueue), typeof(CommandList), }.Contains(context.GetType())) {
                 throw new ArgumentException($"{context.GetType().Name} is not a valid context for profiling.", nameof(context));
             }
             mEventName = eventName;
