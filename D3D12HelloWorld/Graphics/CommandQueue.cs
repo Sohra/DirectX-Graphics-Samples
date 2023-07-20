@@ -53,13 +53,10 @@ namespace wired.Graphics {
         }
 
         public void Dispose() {
+            mFenceEvent.Dispose();
             mFence.Dispose();
             mCommandQueue.Dispose();
         }
-
-        [Obsolete("Work to refactor off this in favour of ExecuteCommandLists(CompiledCommandList), which accepts the higher CompiledCommandList abstraction.")]
-        internal void ExecuteCommandList(ID3D12GraphicsCommandList commandList)
-            => mCommandQueue.ExecuteCommandList(commandList);
 
         /// <summary>
         /// Executes a single compiled command list on the GPU without waiting for its completion.
@@ -138,6 +135,7 @@ namespace wired.Graphics {
 
             mLogger.Write(Serilog.Events.LogEventLevel.Debug, "{MethodName}, Waiting for {requiredFenceValue}, currently at {currentFenceValue}",
                           nameof(WaitForFence), fenceValue, fence.CompletedValue);
+            mFenceEvent.Reset();  //Is this required? D3D12Mutiny used it although the project never worked, D3D12Bundles did not, DX12GE constructed a new one each time.
             fence.SetEventOnCompletion(fenceValue, mFenceEvent).CheckError();
 
             mFenceEvent.WaitOne();

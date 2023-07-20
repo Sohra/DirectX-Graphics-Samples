@@ -723,29 +723,35 @@ namespace wired.Assets {
             ConvertToLinear = convertToLinear;
         }
 
+        [ConstantBufferView(0)]
+        public Matrix4x4 WorldViewProj { get; set; }
+
         [IgnoreShaderMember]
         public Texture? Texture { get; set; }
 
         [IgnoreShaderMember]
         public bool ConvertToLinear { get; set; }
 
-        [ShaderMember]
+        //The type of this property specifies the appropriate attribute, no need to add another
+        //[ShaderMember]
         public SamplerState Sampler { get; set; }
 
-        [ShaderMember]
+        //The type of this property specifies the appropriate attribute, no need to add another
+        //[ShaderMember]
         public Texture2D ColorTexture { get; set; }
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider declaring as nullable.
 
         [Shader("vertex")]
         [ShaderMethod]
-        public PSTVInput VSMain([PositionSemantic] Vector4 position, [TextureCoordinateSemantic] Vector2 uv) {
+        public PSTVInput VSMain([PositionSemantic] Vector3 position, [TextureCoordinateSemantic] Vector2 uv) {
             PSTVInput result;
             //result.Position = position;
-            //With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
-            position.X *= 0.1f;
-            position.Y *= 0.1f;
-            position.Z *= 0.1f;
-            result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
+            ////With load scaling of 0.1f, further scale to suit this sample which doesn't use a camera, and translate it also
+            //position.X *= 0.1f;
+            //position.Y *= 0.1f;
+            //position.Z *= 0.1f;
+            //result.Position = position + new Vector4(0.0f, -0.5f, 1.5f, 0.0f);
+            result.Position = Vector4.Transform(new Vector4(position, 1.0f), WorldViewProj);
             result.UV = uv;
             return result;
         }
@@ -768,6 +774,8 @@ namespace wired.Assets {
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++)), ShaderVisibility.All));
             //context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.Sampler, 1, context.SamplerRegisterCount++)), ShaderVisibility.All));
+
+            context.RootParameters.Add(new RootParameter1(new RootDescriptorTable1(new DescriptorRange1(DescriptorRangeType.ConstantBufferView, 1, context.ConstantBufferViewRegisterCount++, 0, -1, DescriptorRangeFlags.DataStatic)), ShaderVisibility.All));
 
             ColorTexture = new Texture2D(ShaderResourceView.FromTexture2D(Texture, ConvertToLinear ? ToSrgb(Texture.Format) : Texture.Format));
             context.ShaderResourceViews.Add(ColorTexture);

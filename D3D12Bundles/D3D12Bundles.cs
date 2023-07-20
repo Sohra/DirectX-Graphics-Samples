@@ -642,7 +642,7 @@ namespace D3D12Bundles {
         }
 
         CompiledCommandList PopulateCommandList(CommandList commandList, FrameResource frameResource) {
-            commandList.Reset(mCurrentFrameResource.CommandAllocator);
+            commandList.Reset(frameResource.CommandAllocator);
 
             // Set necessary state.
             commandList.SetRootSignature(mPipelineState1);
