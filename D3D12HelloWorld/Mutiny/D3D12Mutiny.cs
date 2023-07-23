@@ -321,12 +321,12 @@ namespace D3D12HelloWorld.Mutiny {
             // Load the ship buffers (this one uses copy command queue, so need to create a fence for it first, so we can wait for it to finish)
             {
                 var modelLoader = XModelLoader.Create3(mGraphicsDevice, @"..\..\..\Mutiny\Models\cannon_boss.X");
-                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
+                (GraphicsResource IndexBuffer, GraphicsResource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
                     = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
-                mVertexBuffer = firstMesh.VertexBuffer;
+                mVertexBuffer = firstMesh.VertexBuffer.NativeResource;
                 mVertexBuffer.Name = nameof(mVertexBuffer);
 
-                mIndexBuffer = firstMesh.IndexBuffer;
+                mIndexBuffer = firstMesh.IndexBuffer.NativeResource;
                 mIndexBuffer.Name = nameof(mIndexBuffer);
 
                 mModel = firstMesh.Model;

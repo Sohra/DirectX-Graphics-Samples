@@ -412,14 +412,14 @@ namespace D3D12Bundles {
             byte[] pMeshData;
             if (UseMutinyAssets) {
                 var modelLoader = XModelLoader.Create3(mGraphicsDevice, @"..\..\..\..\D3D12HelloWorld\Mutiny\Models\cannon_boss.X");
-                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
+                (GraphicsResource IndexBuffer, GraphicsResource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
                     = Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\..\D3D12HelloWorld\Mutiny", false)).Result.First();
 
-                mVertexBuffer = firstMesh.VertexBuffer;
+                mVertexBuffer = firstMesh.VertexBuffer.NativeResource;
                 mVertexBuffer.Name = nameof(mVertexBuffer);
                 mVertexBufferView = firstMesh.Model.Meshes[0].MeshDraw.VertexBufferViews![0];
 
-                mIndexBuffer = firstMesh.IndexBuffer;
+                mIndexBuffer = firstMesh.IndexBuffer.NativeResource;
                 mIndexBufferView = firstMesh.Model.Meshes[0].MeshDraw.IndexBufferView;
                 //mModel = firstMesh.Model;
                 //mShaderResourceViews = firstMesh.ShaderResourceViews;

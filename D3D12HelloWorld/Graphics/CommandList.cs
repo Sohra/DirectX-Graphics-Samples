@@ -54,8 +54,8 @@ namespace wired.Graphics {
             return new CompiledCommandList(this, mCommandAllocator, mCommandList);
         }
 
-        public void CopyBufferRegion(ID3D12Resource dstBuffer, ulong dstOffset, ID3D12Resource srcBuffer, ulong srcOffset, ulong numBytes) {
-            mCommandList.CopyBufferRegion(dstBuffer, dstOffset, srcBuffer, srcOffset, numBytes);
+        public void CopyBufferRegion(GraphicsResource source, ulong sourceOffset, GraphicsResource destination, ulong destinationOffset, ulong numBytes) {
+            mCommandList.CopyBufferRegion(destination.NativeResource, destinationOffset, source.NativeResource, sourceOffset, numBytes);
         }
 
         public void CopyResource(GraphicsResource source, GraphicsResource destination) {

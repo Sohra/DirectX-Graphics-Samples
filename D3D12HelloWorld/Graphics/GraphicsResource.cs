@@ -126,7 +126,7 @@ namespace wired.Graphics {
                     using GraphicsResource readbackBuffer = CreateBuffer<T>(GraphicsDevice, data.Length, ResourceFlags.None, HeapType.Readback);
                     using var copyCommandList = new CommandList(GraphicsDevice, CommandListType.Copy);
 
-                    copyCommandList.CopyBufferRegion(readbackBuffer.NativeResource, 0, NativeResource, offsetInBytes, (uint)data.Length * (uint)Unsafe.SizeOf<T>());
+                    copyCommandList.CopyBufferRegion(this, offsetInBytes, readbackBuffer, 0, (uint)data.Length * (uint)Unsafe.SizeOf<T>());
                     copyCommandList.Flush();
 
                     readbackBuffer.GetData(data);
@@ -152,7 +152,7 @@ namespace wired.Graphics {
                     using GraphicsResource uploadBuffer = CreateBuffer(GraphicsDevice, data, ResourceFlags.None, HeapType.Upload);
                     using var copyCommandList = new CommandList(GraphicsDevice, CommandListType.Copy);
 
-                    copyCommandList.CopyBufferRegion(NativeResource, offsetInBytes, uploadBuffer.NativeResource, 0, (uint)data.Length * (uint)Unsafe.SizeOf<T>());
+                    copyCommandList.CopyBufferRegion(uploadBuffer, 0, this, offsetInBytes, (uint)data.Length * (uint)Unsafe.SizeOf<T>());
                     copyCommandList.Flush();
                 }
                 else {
@@ -162,14 +162,14 @@ namespace wired.Graphics {
                 }
             }
             else if (Dimension == ResourceDimension.Texture2D) {
-                ID3D12Resource uploadResource = GraphicsDevice.NativeDevice.CreateCommittedResource(new HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), HeapFlags.None, NativeResource.Description, ResourceStates.CopyDest);
+                ID3D12Resource uploadResource = GraphicsDevice.NativeDevice.CreateCommittedResource(new HeapProperties(CpuPageProperty.WriteBack, MemoryPool.L0), HeapFlags.None, NativeResource.Description, ResourceStates.CopySource);
                 using var textureUploadBuffer = new Texture(GraphicsDevice, uploadResource, "textureUploadBuffer");
 
                 textureUploadBuffer.NativeResource.WriteToSubresource(0, data, (int)Width * 4, (int)Width * Height * 4);
 
                 using var copyCommandList = new CommandList(GraphicsDevice, CommandListType.Copy);
 
-                copyCommandList.CopyResource(this, textureUploadBuffer);
+                copyCommandList.CopyResource(textureUploadBuffer, this);
                 copyCommandList.Flush();
             }
         }

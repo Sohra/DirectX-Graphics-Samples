@@ -334,13 +334,13 @@ namespace D3D12HelloWorld.HelloTexture {
             // Create the vertex buffer.
             {
                 var modelLoader = XModelLoader.Create3(new GraphicsDevice(mDevice, mLogger), @"..\..\..\Mutiny\Models\cannon_boss.X");
-                (ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
+                (GraphicsResource IndexBuffer, GraphicsResource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model) firstMesh
                     = System.Threading.Tasks.Task.Run(() => modelLoader.GetFlatShadedMeshesAsync(@"..\..\..\Mutiny", false)).Result.First();
 
-                mVertexBuffer = firstMesh.VertexBuffer;
+                mVertexBuffer = firstMesh.VertexBuffer.NativeResource;
                 mVertexBufferView = firstMesh.Model.Meshes[0].MeshDraw.VertexBufferViews![0];
 
-                mIndexBuffer = firstMesh.IndexBuffer;
+                mIndexBuffer = firstMesh.IndexBuffer.NativeResource;
                 mIndexBufferView = firstMesh.Model.Meshes[0].MeshDraw.IndexBufferView;
 
                 //// Define the geometry for a triangle.

@@ -339,49 +339,20 @@ namespace wired.Assets {
             return new XModelLoader(device, frames);
         }
 
-        static ID3D12Resource CreateBufferOnDefaultHeap<T>(GraphicsDevice device, CommandQueue copyCommandQueue, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
-            //Create buffer
-            var size = (ulong)(data.Length * Unsafe.SizeOf<T>());
-            ID3D12Resource buffer = device.NativeDevice.CreateCommittedResource(HeapProperties.DefaultHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.Common);
-
-            //Set data
-            using ID3D12Resource uploadBuffer = CreateBufferOnUploadHeap(device.NativeDevice, data, ResourceFlags.None);
-            //Copy from the upload buffer to the buffer
-            using var copyCommandList = new CommandList(device, CommandListType.Copy);
-            copyCommandList.CopyBufferRegion(buffer, 0, uploadBuffer, 0, size);
-
-            //Using this abstraction for ID3D12CommandQueue (and its abstraction for closed command lists), can force a wait for the queue to complete execution and ensure CPU-GPU synchronisation
-            //so that when execution leaves this method, the CPU doesn't clean up resources the GPU still requires resulting in an SEHException
-            CompiledCommandList compiledCommandList = copyCommandList.Close();
-            copyCommandQueue.ExecuteCommandLists(compiledCommandList);
-
-            return buffer;
-        }
-
-        static ID3D12Resource CreateBufferOnUploadHeap<T>(ID3D12Device device, Span<T> data, ResourceFlags bufferFlags) where T : unmanaged {
-            //Create buffer
-            int size = data.Length * Unsafe.SizeOf<T>();
-            ID3D12Resource buffer = device.CreateCommittedResource(HeapProperties.UploadHeapProperties, HeapFlags.None, ResourceDescription.Buffer(size, bufferFlags), ResourceStates.GenericRead);
-
-            //Set data
-            buffer.SetData<T>(data);
-            return buffer;
-        }
-
         /// <summary>
         /// 
         /// </summary>
         /// <param name="texturesFolder"></param>
         /// <param name="useTextureCoordinates"></param>
         /// <returns></returns>
-        public async Task<IEnumerable<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model)>> GetFlatShadedMeshesAsync(string texturesFolder, bool useTextureCoordinates) {
-            var meshes = new List<(ID3D12Resource IndexBuffer, ID3D12Resource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model)>();
+        public async Task<IEnumerable<(GraphicsResource IndexBuffer, GraphicsResource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model)>> GetFlatShadedMeshesAsync(string texturesFolder, bool useTextureCoordinates) {
+            var meshes = new List<(GraphicsResource IndexBuffer, GraphicsResource VertexBuffer, IEnumerable<ShaderResourceView> ShaderResourceViews, Model Model)>();
 
             foreach (var mesh in mFrames.Keys) {
                 ushort[] faceVertexIndices = mesh.FaceVertexIndices.Select(Convert.ToUInt16).ToArray();
-                var areIndices32Bit = System.Runtime.InteropServices.Marshal.SizeOf(faceVertexIndices.GetType().GetElementType()!) == sizeof(int);
-                ID3D12Resource indexBuffer = CreateBufferOnDefaultHeap(mDevice, mDevice.CopyCommandQueue, GetIndexBuffer(faceVertexIndices), ResourceFlags.None);
-                var indexBufferView = new IndexBufferView(indexBuffer.GPUVirtualAddress, (int)indexBuffer.Description.Width, areIndices32Bit);
+                bool areIndices32Bit = System.Runtime.InteropServices.Marshal.SizeOf(faceVertexIndices.GetType().GetElementType()!) == sizeof(int);
+                GraphicsResource indexBuffer = GraphicsResource.CreateBuffer(mDevice, GetIndexBuffer(faceVertexIndices), ResourceFlags.None);
+                var indexBufferView = new IndexBufferView(indexBuffer.NativeResource.GPUVirtualAddress, (int)indexBuffer.Description.Width, areIndices32Bit);
 
                 var worldMatrix = mFrames[mesh] * Matrix4x4.CreateScale(0.1f);  //For D3D12Bundles, and HelloTexture (with further scaling and translation compensation in its vertex shader)
                 var triangleVertices = mesh.Vertices.Select((f, i) => new FlatShadedVertex(Vector3.Transform(f, worldMatrix), mesh.TextureCoords[i]));
@@ -396,10 +367,8 @@ namespace wired.Assets {
                 // recommended. Every time the GPU needs it, the upload heap will be marshalled 
                 // over. Please read up on Default Heap usage. An upload heap is used here for 
                 // code simplicity and because there are very few verts to actually transfer.
-                var vertexBuffer = CreateBufferOnUploadHeap(mDevice.NativeDevice, new Span<byte>(vertexData), ResourceFlags.None);
-                //The above overload, because its Dimension is Buffer but its HeapType is Upload instead of Default, call Map(0), data.CopyTo, then Unmap(0)
-
-                var vertexBufferView = new VertexBufferView(vertexBuffer.GPUVirtualAddress, (int)vertexBuffer.Description.Width, Unsafe.SizeOf<FlatShadedVertex>());
+                GraphicsResource vertexBuffer = GraphicsResource.CreateBuffer(mDevice, new Span<byte>(vertexData), ResourceFlags.None, HeapType.Upload);
+                var vertexBufferView = new VertexBufferView(vertexBuffer.NativeResource.GPUVirtualAddress, (int)vertexBuffer.Description.Width, Unsafe.SizeOf<FlatShadedVertex>());
 
                 IShader? shader = null;
                 if (mesh.Materials.HasValue) {
@@ -464,15 +433,7 @@ namespace wired.Assets {
                 var textureDesc = ResourceDescription.Texture2D(format, width, height, 1, 1, 1, 0, ResourceFlags.None);
 
                 var texture = new Texture(mDevice, textureDesc, HeapType.Default);
-                //I can't for the life of me figure out why this doesn't work:
-                //texture.SetData(data.Span);
-
-                //But the below does:
-                var uploadBufferSize = texture.SizeInBytes * 4;
-
-                var textureUploadBuffer = GraphicsResource.CreateBuffer(mDevice, (int)uploadBufferSize, ResourceFlags.None, HeapType.Upload);
-                textureUploadBuffer.NativeResource.Name = nameof(textureUploadBuffer);
-                mDevice.CommandList.UpdateSubresource(texture, textureUploadBuffer.NativeResource, 0, 0, data.Span);
+                texture.SetData(data.Span);
 
                 return texture;
             }
